@@ -1,0 +1,106 @@
+name: Build and release DMG
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Universal DMG
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run self-tests
+        run: swift run Luma --self-test
+
+      - name: Build Universal 2 executable
+        run: scripts/build-universal.sh
+
+      - name: Prepare release metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          short_sha="${GITHUB_SHA:0:7}"
+          build_id="${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          stem="Luma-${version}-build.${build_id}-${short_sha}"
+          {
+            echo "version=$version"
+            echo "build_id=$build_id"
+            echo "short_sha=$short_sha"
+            echo "tag=v${version}-build.${build_id}-${short_sha}"
+            echo "dmg=dist/${stem}.dmg"
+            echo "checksum=dist/${stem}.dmg.sha256"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Package and verify DMG
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+          RELEASE_DMG: ${{ steps.metadata.outputs.dmg }}
+        run: |
+          set -euo pipefail
+          staging="$RUNNER_TEMP/Luma-dmg-root"
+          app="$staging/Luma.app"
+          mkdir -p "$staging" dist
+
+          LUMA_BINARY_PATH=".build/universal/Luma" \
+          LUMA_VERSION="$RELEASE_VERSION" \
+          LUMA_BUILD_NUMBER="$GITHUB_RUN_NUMBER" \
+          scripts/package-app.sh "$app"
+
+          architectures="$(lipo -archs "$app/Contents/MacOS/Luma")"
+          [[ "$architectures" == *arm64* && "$architectures" == *x86_64* ]]
+          codesign --verify --deep --strict "$app"
+
+          ln -s /Applications "$staging/Applications"
+          hdiutil create \
+            -volname Luma \
+            -srcfolder "$staging" \
+            -format UDZO \
+            -ov \
+            "$RELEASE_DMG"
+          hdiutil verify "$RELEASE_DMG"
+
+          dmg_name="$(basename "$RELEASE_DMG")"
+          (
+            cd dist
+            shasum -a 256 "$dmg_name" > "$dmg_name.sha256"
+          )
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+          RELEASE_BUILD: ${{ steps.metadata.outputs.build_id }}
+          RELEASE_SHA: ${{ steps.metadata.outputs.short_sha }}
+          RELEASE_DMG: ${{ steps.metadata.outputs.dmg }}
+          RELEASE_CHECKSUM: ${{ steps.metadata.outputs.checksum }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/luma-release-notes.md"
+          printf 'Automated Universal 2 build from commit `%s`.\n\n- macOS 14 or newer\n- Apple Silicon and Intel\n- Development build with ad-hoc signature\n' \
+            "$GITHUB_SHA" > "$notes"
+
+          gh release create "$RELEASE_TAG" \
+            "$RELEASE_DMG#Luma Universal 2 DMG" \
+            "$RELEASE_CHECKSUM#SHA-256 checksum" \
+            --target "$GITHUB_SHA" \
+            --title "Luma $RELEASE_VERSION build $RELEASE_BUILD ($RELEASE_SHA)" \
+            --notes-file "$notes" \
+            --prerelease \
+            --latest=false

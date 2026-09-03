@@ -32,6 +32,12 @@ open ../outputs/Luma.app
 
 也可以在安装完整 Xcode 后直接打开 `Package.swift`。
 
+## 自动发布
+
+每次推送到 `main` 分支后，GitHub Actions 会运行自测、交叉编译 arm64 与 x86_64、合并为 Universal 2 应用，并创建包含 DMG 与 SHA-256 校验文件的 prerelease。也可以在 Actions 页面手动触发同一流程。
+
+当前自动构建使用 ad-hoc 签名，适合开发测试。正式分发时应在仓库 Secrets 中配置 Developer ID，并增加 Apple notarization 步骤。
+
 ## 权限
 
 浏览和 JSON 功能不需要额外权限。第一次向其他应用发送文本时，macOS 会要求辅助功能权限：
