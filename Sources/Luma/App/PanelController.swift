@@ -69,7 +69,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         presentPanel()
     }
 
-    func showWithoutSource(message: String) {
+    func showWithoutSource(message: String? = nil) {
         state.prepareForPresentation(context: nil)
         state.statusMessage = message
         presentPanel()
@@ -80,9 +80,15 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        guard notification.object as? NSWindow === panel, state.editorDraft == nil else { return }
+        guard notification.object as? NSWindow === panel,
+              state.editorDraft == nil,
+              state.availableUpdate == nil else { return }
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.panel.isVisible, !self.panel.isKeyWindow, self.state.editorDraft == nil else {
+            guard let self,
+                  self.panel.isVisible,
+                  !self.panel.isKeyWindow,
+                  self.state.editorDraft == nil,
+                  self.state.availableUpdate == nil else {
                 return
             }
             self.hide()

@@ -53,6 +53,21 @@ struct PanelView: View {
                 onCancel: { state.editorDraft = nil }
             )
         }
+        .alert(item: $state.availableUpdate) { release in
+            Alert(
+                title: Text("发现新版本"),
+                message: Text(
+                    "当前版本：\(AppVersion.current.displayString)\n" +
+                    "可用版本：\(release.version.displayString)" +
+                    (release.isPrerelease ? "（预发布版）" : "") +
+                    "\n\n下载后会校验 SHA-256，并自动打开 DMG。"
+                ),
+                primaryButton: .default(Text("下载并打开")) {
+                    state.downloadUpdate(release)
+                },
+                secondaryButton: .cancel(Text("稍后"))
+            )
+        }
     }
 
     @ViewBuilder
@@ -419,13 +434,30 @@ private struct TargetRailView: View {
                 if state.mode == .records {
                     Text("⌘E 编辑")
                     Text("⌘N 新建")
-                    Text("⌘Q 退出")
                 } else if !state.jsonOutput.isEmpty {
                     Button("发送结果") { state.sendJSONOutput() }
                         .buttonStyle(.plain)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(LumaTheme.iris)
                 }
+
+                RailActionButton(
+                    title: state.isDownloadingUpdate
+                        ? "下载中…"
+                        : (state.isCheckingForUpdates ? "检查中…" : "更新"),
+                    systemImage: "arrow.triangle.2.circlepath",
+                    isWorking: state.isUpdateBusy,
+                    action: state.checkForUpdates
+                )
+                .disabled(state.isUpdateBusy)
+
+                RailActionButton(
+                    title: "退出",
+                    systemImage: "power",
+                    tint: LumaTheme.danger,
+                    action: state.requestQuit
+                )
+                .help("退出 Luma（⌘Q）")
             }
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(LumaTheme.muted)
@@ -433,5 +465,40 @@ private struct TargetRailView: View {
             .frame(height: 43)
             .background(.ultraThinMaterial)
         }
+    }
+}
+
+private struct RailActionButton: View {
+    let title: String
+    let systemImage: String
+    var tint: Color = LumaTheme.muted
+    var isWorking = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.72)
+                        .frame(width: 12, height: 12)
+                } else {
+                    Image(systemName: systemImage)
+                }
+                Text(title)
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 7)
+            .frame(height: 25)
+            .background(Color.white.opacity(0.48))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(LumaTheme.silverline.opacity(0.5), lineWidth: 0.6)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }

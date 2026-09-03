@@ -18,6 +18,9 @@ final class AppState: ObservableObject {
     @Published var editorDraft: RecordDraft?
     @Published var statusMessage: String?
     @Published var focusRequest = UUID()
+    @Published var availableUpdate: AppRelease?
+    @Published var isCheckingForUpdates = false
+    @Published var isDownloadingUpdate = false
 
     @Published var jsonInput = "" {
         didSet { scheduleJSONProcessing() }
@@ -32,6 +35,8 @@ final class AppState: ObservableObject {
 
     private var storeSubscription: AnyCancellable?
     private var jsonTask: Task<Void, Never>?
+    private var updateTask: Task<Void, Never>?
+    private let updateService = GitHubUpdateService()
 
     init(recordStore: RecordStore) {
         self.recordStore = recordStore
@@ -56,6 +61,10 @@ final class AppState: ObservableObject {
 
     var targetIcon: NSImage {
         sourceContext?.icon ?? NSImage(systemSymbolName: "arrow.turn.down.left", accessibilityDescription: nil)!
+    }
+
+    var isUpdateBusy: Bool {
+        isCheckingForUpdates || isDownloadingUpdate
     }
 
     func prepareForPresentation(context: SourceContext?) {
@@ -153,6 +162,52 @@ final class AppState: ObservableObject {
     func markSelectedUsed() {
         guard let record = selectedRecord else { return }
         try? recordStore.markUsed(record)
+    }
+
+    func checkForUpdates() {
+        guard !isUpdateBusy else { return }
+        isCheckingForUpdates = true
+        statusMessage = "正在检查 GitHub Release…"
+
+        updateTask = Task { [weak self] in
+            guard let self else { return }
+            defer { isCheckingForUpdates = false }
+            do {
+                let release = try await updateService.newestRelease()
+                if release.version > AppVersion.current {
+                    availableUpdate = release
+                    statusMessage = "发现新版本 \(release.version.displayString)。"
+                } else {
+                    statusMessage = "当前已是最新版本（\(AppVersion.current.displayString)）。"
+                }
+            } catch {
+                statusMessage = "检查更新失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    func downloadUpdate(_ release: AppRelease) {
+        guard !isUpdateBusy else { return }
+        isDownloadingUpdate = true
+        statusMessage = "正在下载并校验 \(release.dmgName)…"
+
+        updateTask = Task { [weak self] in
+            guard let self else { return }
+            defer { isDownloadingUpdate = false }
+            do {
+                let fileURL = try await updateService.download(release)
+                guard NSWorkspace.shared.open(fileURL) else {
+                    throw GitHubUpdateError.cannotOpenDownload
+                }
+                statusMessage = "新版本已下载并打开，请将 Luma 拖入“应用程序”。"
+            } catch {
+                statusMessage = "下载更新失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    func requestQuit() {
+        NSApp.terminate(nil)
     }
 
     func formatJSON() {

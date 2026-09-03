@@ -61,6 +61,24 @@ enum SelfTestRunner {
         check("search alias", RecordSearch.results(for: "hello", in: records).first?.name == "问候语")
         check("search tag", RecordSearch.results(for: "chat", in: records).first?.name == "常用回复")
 
+        let currentVersion = AppVersion(versionString: "0.2.0", buildString: "7")
+        let newerBuild = AppVersion(releaseTag: "v0.2.0-build.8.1-abcdef0")
+        let newerVersion = AppVersion(releaseTag: "v0.3.0-build.1.1-1234567")
+        let stableVersion = AppVersion(releaseTag: "v0.4.0")
+        check("parse release version", newerBuild?.displayString == "0.2.0（构建 8.1）")
+        check("parse stable release version", stableVersion?.displayString == "0.4.0")
+        check("compare release build", currentVersion != nil && newerBuild != nil && currentVersion! < newerBuild!)
+        check("compare semantic version", newerBuild != nil && newerVersion != nil && newerBuild! < newerVersion!)
+        check(
+            "parse release checksum",
+            GitHubUpdateService.parseChecksum(Data((String(repeating: "a", count: 64) + "  Luma.dmg\n").utf8))
+                == String(repeating: "a", count: 64)
+        )
+        check(
+            "reject invalid release checksum",
+            GitHubUpdateService.parseChecksum(Data("not-a-checksum  Luma.dmg\n".utf8)) == nil
+        )
+
         let persistenceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("Luma-self-test-\(UUID().uuidString).json")
         let secureStore = MemorySecureTextStore()

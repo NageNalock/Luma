@@ -58,7 +58,7 @@ jobs:
 
           LUMA_BINARY_PATH=".build/universal/Luma" \
           LUMA_VERSION="$RELEASE_VERSION" \
-          LUMA_BUILD_NUMBER="$GITHUB_RUN_NUMBER" \
+          LUMA_BUILD_NUMBER="$RELEASE_BUILD" \
           scripts/package-app.sh "$app"
 
           architectures="$(lipo -archs "$app/Contents/MacOS/Luma")"

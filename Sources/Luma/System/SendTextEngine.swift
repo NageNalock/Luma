@@ -41,7 +41,10 @@ final class SendTextEngine {
             return .failure(SendTextError.accessibilityPermissionRequired)
         }
 
-        if let focusedElement = context.focusedElement {
+        // Custom controls such as Ghostty can report success when setting
+        // AXSelectedText even though the attribute is not writable.
+        if let focusedElement = context.focusedElement,
+           Self.canSetSelectedText(on: focusedElement) {
             let status = AXUIElementSetAttributeValue(
                 focusedElement,
                 kAXSelectedTextAttribute as CFString,
@@ -56,6 +59,16 @@ final class SendTextEngine {
             return .failure(SendTextError.sendFailed)
         }
         return .success(.keyEvents)
+    }
+
+    private static func canSetSelectedText(on element: AXUIElement) -> Bool {
+        var isSettable = DarwinBoolean(false)
+        let status = AXUIElementIsAttributeSettable(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            &isSettable
+        )
+        return status == .success && isSettable.boolValue
     }
 
     private func sendAsKeyEvents(_ text: String, processIdentifier: pid_t) -> Bool {

@@ -50,8 +50,8 @@ if [[ -n "${LUMA_VERSION:-}" ]]; then
 fi
 
 if [[ -n "${LUMA_BUILD_NUMBER:-}" ]]; then
-    if [[ ! "$LUMA_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-        echo "LUMA_BUILD_NUMBER must be numeric" >&2
+    if [[ ! "$LUMA_BUILD_NUMBER" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+        echo "LUMA_BUILD_NUMBER must contain one to three numeric components" >&2
         exit 5
     fi
     /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $LUMA_BUILD_NUMBER" "$APP_PATH/Contents/Info.plist"

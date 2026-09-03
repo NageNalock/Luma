@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: PanelController?
     private var globalHotKey: GlobalHotKey?
     private var statusItem: NSStatusItem?
+    private var state: AppState?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
@@ -12,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let arguments = Set(CommandLine.arguments)
         let recordStore = makeRecordStore(demo: arguments.contains("--demo"))
         let state = AppState(recordStore: recordStore)
+        self.state = state
         let panelController = PanelController(state: state)
         self.panelController = panelController
 
@@ -39,12 +41,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             """
             state.switchMode(.json)
         }
-        if arguments.contains("--show")
+        let hasPresentationArgument = arguments.contains("--show")
             || arguments.contains("--demo")
             || arguments.contains("--json-demo")
-            || arguments.contains("--json-error-demo") {
+            || arguments.contains("--json-error-demo")
+        if hasPresentationArgument {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 panelController.show()
+            }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                panelController.showWithoutSource()
             }
         }
         if let snapshotPath = value(after: "--snapshot", in: CommandLine.arguments) {
@@ -61,6 +68,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            panelController?.showWithoutSource()
+        }
+        return true
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -87,6 +101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showJSON() {
         panelController?.show()
         panelController?.state.switchMode(.json)
+    }
+
+    @objc private func checkForUpdates() {
+        panelController?.showWithoutSource(message: "正在检查 GitHub Release…")
+        state?.checkForUpdates()
     }
 
     @objc private func quit() {
@@ -126,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "打开 Luma", action: #selector(showPanel), keyEquivalent: "")
         menu.addItem(withTitle: "新建记录", action: #selector(newRecord), keyEquivalent: "n")
         menu.addItem(withTitle: "JSON 工具", action: #selector(showJSON), keyEquivalent: "j")
+        menu.addItem(withTitle: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出 Luma", action: #selector(quit), keyEquivalent: "q")
         for item in menu.items { item.target = self }
@@ -138,8 +158,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
-        let appMenu = NSMenu()
+        let appMenu = NSMenu(title: "Luma")
+        appMenu.addItem(
+            withTitle: "关于 Luma",
+            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+            keyEquivalent: ""
+        )
+        appMenu.addItem(withTitle: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出 Luma", action: #selector(quit), keyEquivalent: "q")
+        for item in appMenu.items where item.action == #selector(checkForUpdates) || item.action == #selector(quit) {
+            item.target = self
+        }
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 

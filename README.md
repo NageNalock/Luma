@@ -12,6 +12,14 @@ Luma 是一个原生 macOS 全局 Send Text 面板，并包含 JSON 格式化、
 - 可将正文存入 macOS Keychain，避免写入记录数据库。
 - 可限制记录允许发送到哪些 bundle identifier。
 - JSON 严格校验、2/4 空格格式化、压缩、语义高亮、中文错误与行列定位。
+- 主界面、菜单栏和应用菜单均可检查 GitHub Release 更新或彻底退出进程。
+- Dock 与菜单栏都会显示 Luma；点击 Dock 图标可重新打开主面板。
+
+## 更新
+
+点击主界面右下角的“更新”，Luma 会读取 `NageNalock/Luma` 的 GitHub Releases。当前自动发布产出的是 prerelease，因此稳定版与预发布版都会参与版本比较。
+
+发现新版本后，Luma 会把 DMG 下载到自身缓存目录，使用 Release 同名 `.sha256` 文件校验内容，再自动打开 DMG。安装仍由用户将新版本拖入“应用程序”完成；Luma 不会自行覆盖应用，也不需要访问“下载”文件夹。
 
 ## 构建
 
@@ -36,7 +44,7 @@ open ../outputs/Luma.app
 
 每次推送到 `main` 分支后，GitHub Actions 会运行自测、交叉编译 arm64 与 x86_64、合并为 Universal 2 应用，并创建包含 DMG 与 SHA-256 校验文件的 prerelease。也可以在 Actions 页面手动触发同一流程。
 
-当前自动构建使用 ad-hoc 签名，适合开发测试。正式分发时应在仓库 Secrets 中配置 Developer ID，并增加 Apple notarization 步骤。
+当前自动构建使用 ad-hoc 签名，适合开发测试。正式分发时应在仓库 Secrets 中配置 Developer ID，并增加 Apple notarization 步骤。更新器不会改变签名状态；ad-hoc 构建替换应用后，macOS 仍可能要求重新确认既有隐私权限。
 
 ## 权限
 
