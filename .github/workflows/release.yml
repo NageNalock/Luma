@@ -49,6 +49,7 @@ jobs:
         shell: bash
         env:
           RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+          RELEASE_BUILD: ${{ steps.metadata.outputs.build_id }}
           RELEASE_DMG: ${{ steps.metadata.outputs.dmg }}
         run: |
           set -euo pipefail
