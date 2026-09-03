@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Swift Package Manager and Xcode build output
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Local previews and packaging intermediates
+work/
+outputs/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.cer
+*.crt
+*.key
+*.pem
+*.mobileprovision
+*.provisionprofile
+credentials*
+secrets*

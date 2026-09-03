@@ -1,0 +1,437 @@
+import SwiftUI
+
+struct PanelView: View {
+    @ObservedObject var state: AppState
+    @FocusState private var searchFocused: Bool
+
+    var body: some View {
+        ZStack {
+            VisualEffectView(material: .sidebar, blendingMode: .behindWindow)
+            LumaTheme.mercury.opacity(0.82)
+
+            VStack(spacing: 0) {
+                header
+                Rectangle()
+                    .fill(LumaTheme.silverline.opacity(0.72))
+                    .frame(height: 1)
+
+                Group {
+                    switch state.mode {
+                    case .records:
+                        RecordListView(state: state)
+                    case .json:
+                        JSONWorkbenchView(state: state)
+                    }
+                }
+
+                TargetRailView(state: state)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.86), lineWidth: 1)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(LumaTheme.silverline.opacity(0.58), lineWidth: 0.7)
+                .padding(1)
+        }
+        .onAppear { searchFocused = state.mode == .records }
+        .onChange(of: state.focusRequest) { _, _ in
+            searchFocused = state.mode == .records
+        }
+        .onChange(of: state.mode) { _, mode in
+            searchFocused = mode == .records
+        }
+        .sheet(item: $state.editorDraft) { draft in
+            RecordEditorView(
+                initialDraft: draft,
+                onSave: { state.saveDraft($0) },
+                onDelete: { record in state.delete(record) },
+                onCancel: { state.editorDraft = nil }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        switch state.mode {
+        case .records:
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(LumaTheme.lilacWash)
+                    Image(systemName: "command")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(LumaTheme.iris)
+                }
+                .frame(width: 34, height: 34)
+
+                TextField("搜索记录…", text: $state.query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 20, weight: .medium, design: .rounded))
+                    .foregroundStyle(LumaTheme.graphite)
+                    .focused($searchFocused)
+                    .onSubmit { state.sendSelected() }
+
+                HeaderButton(title: "JSON", systemImage: "curlybraces") {
+                    state.switchMode(.json)
+                }
+
+                HeaderButton(title: "新建", systemImage: "plus") {
+                    state.beginNewRecord()
+                }
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 62)
+
+        case .json:
+            HStack(spacing: 10) {
+                HeaderButton(title: "记录", systemImage: "chevron.left") {
+                    state.switchMode(.records)
+                }
+
+                Text("JSON")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundStyle(LumaTheme.graphite)
+
+                Text("严格模式")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LumaTheme.iris)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(LumaTheme.lilacWash)
+                    .clipShape(Capsule())
+
+                Spacer()
+
+                Picker("缩进", selection: $state.jsonIndentWidth) {
+                    Text("2 空格").tag(2)
+                    Text("4 空格").tag(4)
+                }
+                .labelsHidden()
+                .frame(width: 92)
+
+                HeaderButton(title: "格式化", systemImage: "text.alignleft") {
+                    state.formatJSON()
+                }
+                HeaderButton(title: "压缩", systemImage: "arrow.down.right.and.arrow.up.left") {
+                    state.minifyJSON()
+                }
+                HeaderButton(title: "复制", systemImage: "doc.on.doc") {
+                    state.copyJSONOutput()
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 62)
+        }
+    }
+}
+
+private struct HeaderButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                Text(title)
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(LumaTheme.graphite.opacity(0.82))
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(Color.white.opacity(0.62))
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(LumaTheme.silverline.opacity(0.68), lineWidth: 0.7)
+            }
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+}
+
+private struct RecordListView: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        Group {
+            if state.filteredRecords.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    ZStack {
+                        Circle().fill(LumaTheme.lilacWash)
+                        Image(systemName: state.query.isEmpty ? "text.badge.plus" : "magnifyingglass")
+                            .font(.system(size: 25, weight: .medium))
+                            .foregroundStyle(LumaTheme.iris)
+                    }
+                    .frame(width: 54, height: 54)
+                    Text(state.query.isEmpty ? "还没有文本记录" : "没有匹配的记录")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(LumaTheme.graphite)
+                    Text(state.query.isEmpty ? "新建一条，之后可从任何应用呼出并发送。" : "试试名称、别名或标签。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(LumaTheme.muted)
+                    if state.query.isEmpty {
+                        Button("新建记录") { state.beginNewRecord() }
+                            .buttonStyle(.borderedProminent)
+                            .tint(LumaTheme.iris)
+                    }
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 5) {
+                            ForEach(state.filteredRecords) { record in
+                                RecordRowView(
+                                    record: record,
+                                    isSelected: state.selectedRecordID == record.id,
+                                    onSelect: { state.selectedRecordID = record.id },
+                                    onSend: {
+                                        state.selectedRecordID = record.id
+                                        state.sendSelected()
+                                    }
+                                )
+                                .id(record.id)
+                                .contextMenu {
+                                    Button(record.isFavorite ? "取消收藏" : "收藏") {
+                                        state.toggleFavorite(record)
+                                    }
+                                    Button("编辑") {
+                                        state.selectedRecordID = record.id
+                                        state.beginEditingSelected()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(10)
+                    }
+                    .onChange(of: state.selectedRecordID) { _, selectedID in
+                        guard let selectedID else { return }
+                        withAnimation(.easeOut(duration: 0.12)) {
+                            proxy.scrollTo(selectedID, anchor: .center)
+                        }
+                    }
+                }
+            }
+        }
+        .background(LumaTheme.pearl.opacity(0.76))
+    }
+}
+
+private struct RecordRowView: View {
+    let record: TextRecord
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onSend: () -> Void
+
+    private var preview: String {
+        guard !record.hidePreview, !record.isProtected else { return "••••••••••••" }
+        return (record.text ?? "")
+            .replacingOccurrences(of: "\r\n", with: " ↵ ")
+            .replacingOccurrences(of: "\n", with: " ↵ ")
+            .replacingOccurrences(of: "\r", with: " ↵ ")
+            .replacingOccurrences(of: "\t", with: " ⇥ ")
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: record.isFavorite ? "star.fill" : "text.quote")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(record.isFavorite ? LumaTheme.iris : LumaTheme.muted.opacity(0.72))
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(record.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(LumaTheme.graphite)
+                    .lineLimit(1)
+                Text(preview)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(LumaTheme.muted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+
+            if record.isProtected {
+                Image(systemName: "key.fill")
+                    .foregroundStyle(LumaTheme.iris)
+            }
+
+            ForEach(record.tags.prefix(2), id: \.self) { tag in
+                Text(tag)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(isSelected ? LumaTheme.iris : LumaTheme.muted)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(isSelected ? Color.white.opacity(0.76) : LumaTheme.lilacWash)
+                    .clipShape(Capsule())
+            }
+
+            if isSelected {
+                Image(systemName: "return")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(LumaTheme.iris)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 61)
+        .background(isSelected ? LumaTheme.lilacWash.opacity(0.82) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(isSelected ? LumaTheme.iris.opacity(0.34) : Color.clear, lineWidth: 0.8)
+        }
+        .overlay(alignment: .leading) {
+            if isSelected {
+                Capsule()
+                    .fill(LumaTheme.iris)
+                    .frame(width: 3, height: 35)
+                    .padding(.leading, 1)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2, perform: onSend)
+        .onTapGesture(perform: onSelect)
+    }
+}
+
+private struct JSONWorkbenchView: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                editorPane(title: "原始内容") {
+                    TextEditor(text: $state.jsonInput)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(LumaTheme.graphite)
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .background(Color.clear)
+                }
+
+                Rectangle()
+                    .fill(LumaTheme.silverline.opacity(0.75))
+                    .frame(width: 1)
+
+                editorPane(title: "格式化结果") {
+                    if state.jsonOutput.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "curlybraces")
+                                .font(.system(size: 24, weight: .medium))
+                                .foregroundStyle(LumaTheme.iris.opacity(0.72))
+                            Text(state.jsonInput.isEmpty ? "在左侧粘贴 JSON" : "修正错误后显示结果")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(LumaTheme.muted)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        SyntaxTextView(text: state.jsonOutput)
+                    }
+                }
+            }
+
+            if let diagnostic = state.jsonDiagnostic {
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(LumaTheme.danger)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(diagnostic.summary)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(LumaTheme.graphite)
+                        if let expected = diagnostic.expected {
+                            Text("此处应为 \(expected)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(LumaTheme.muted)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(Color(red: 1.0, green: 0.94, blue: 0.95))
+                .overlay(alignment: .top) {
+                    Rectangle().fill(LumaTheme.danger.opacity(0.24)).frame(height: 1)
+                }
+            }
+        }
+    }
+
+    private func editorPane<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title.uppercased())
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.7)
+                    .foregroundStyle(LumaTheme.muted)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+            .background(LumaTheme.mercury.opacity(0.72))
+
+            content()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(LumaTheme.pearl.opacity(0.92))
+    }
+}
+
+private struct TargetRailView: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(LumaTheme.iris.opacity(0.8))
+                .frame(height: 2)
+
+            HStack(spacing: 9) {
+                if let status = state.statusMessage {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(LumaTheme.iris)
+                    Text(status)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(LumaTheme.graphite)
+                        .lineLimit(1)
+                } else {
+                    Image(nsImage: state.targetIcon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                    Text(state.mode == .records ? "↵ 发送到 \(state.targetName)" : "发送 JSON 到 \(state.targetName)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(LumaTheme.graphite)
+                }
+
+                Spacer()
+
+                if state.mode == .records {
+                    Text("⌘E 编辑")
+                    Text("⌘N 新建")
+                    Text("⌘Q 退出")
+                } else if !state.jsonOutput.isEmpty {
+                    Button("发送结果") { state.sendJSONOutput() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LumaTheme.iris)
+                }
+            }
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(LumaTheme.muted)
+            .padding(.horizontal, 14)
+            .frame(height: 43)
+            .background(.ultraThinMaterial)
+        }
+    }
+}
