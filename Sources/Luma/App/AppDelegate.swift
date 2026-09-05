@@ -12,7 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let arguments = Set(CommandLine.arguments)
         let recordStore = makeRecordStore(demo: arguments.contains("--demo"))
-        let state = AppState(recordStore: recordStore)
+        let clipboardStore = makeClipboardStore(demo: arguments.contains("--clipboard-demo"))
+        let state = AppState(recordStore: recordStore, clipboardStore: clipboardStore)
         self.state = state
         let panelController = PanelController(state: state)
         self.panelController = panelController
@@ -41,8 +42,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             """
             state.switchMode(.json)
         }
+        if arguments.contains("--clipboard-demo") {
+            state.switchMode(.clipboard)
+        }
         let hasPresentationArgument = arguments.contains("--show")
             || arguments.contains("--demo")
+            || arguments.contains("--clipboard-demo")
             || arguments.contains("--json-demo")
             || arguments.contains("--json-error-demo")
         if hasPresentationArgument {
@@ -103,6 +108,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController?.state.switchMode(.json)
     }
 
+    @objc private func showClipboard() {
+        panelController?.show()
+        panelController?.state.switchMode(.clipboard)
+    }
+
     @objc private func checkForUpdates() {
         panelController?.showWithoutSource(message: "正在检查 GitHub Release…")
         state?.checkForUpdates()
@@ -144,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "打开 Luma", action: #selector(showPanel), keyEquivalent: "")
         menu.addItem(withTitle: "新建记录", action: #selector(newRecord), keyEquivalent: "n")
+        menu.addItem(withTitle: "剪贴板历史", action: #selector(showClipboard), keyEquivalent: "")
         menu.addItem(withTitle: "JSON 工具", action: #selector(showJSON), keyEquivalent: "j")
         menu.addItem(withTitle: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
         menu.addItem(.separator())
@@ -216,6 +227,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? store.save(greeting)
         try? store.save(hidden)
         try? store.save(reply)
+        return store
+    }
+
+    private func makeClipboardStore(demo: Bool) -> ClipboardHistoryStore {
+        guard demo else { return ClipboardHistoryStore() }
+
+        let demoURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Luma-clipboard-preview-\(ProcessInfo.processInfo.processIdentifier).json")
+        let store = ClipboardHistoryStore(fileURL: demoURL, startMonitoring: false)
+        store.record(
+            text: "https://example.com/docs",
+            sourceAppName: "Safari",
+            sourceBundleIdentifier: "com.apple.Safari",
+            copiedAt: Date().addingTimeInterval(-420)
+        )
+        store.record(
+            text: "收到，我稍后确认完整信息后回复你。",
+            sourceAppName: "信息",
+            sourceBundleIdentifier: "com.apple.MobileSMS",
+            copiedAt: Date().addingTimeInterval(-95)
+        )
+        store.record(
+            text: "git status --short",
+            sourceAppName: "终端",
+            sourceBundleIdentifier: "com.apple.Terminal",
+            copiedAt: Date().addingTimeInterval(-18)
+        )
         return store
     }
 

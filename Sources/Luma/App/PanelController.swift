@@ -13,6 +13,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     private let panel: LumaPanel
     private let sendTextEngine = SendTextEngine()
+    private let clipboardPasteEngine = ClipboardPasteEngine()
     private var localKeyMonitor: Any?
     private var subscriptions = Set<AnyCancellable>()
 
@@ -49,10 +50,13 @@ final class PanelController: NSObject, NSWindowDelegate {
         state.onSendText = { [weak self] text, record in
             self?.send(text, record: record)
         }
+        state.onPasteClipboard = { [weak self] entry in
+            self?.pasteClipboardEntry(entry)
+        }
         state.onRequestHide = { [weak self] in self?.hide() }
         installKeyMonitor()
         observeContentSize()
-        resizePanel(for: state.mode, resultCount: state.filteredRecords.count, animated: false)
+        resizePanel(for: state.mode, resultCount: state.currentResultCount, animated: false)
     }
 
     deinit {
@@ -65,6 +69,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func show() {
         let context = SourceContextCapture.capture(excludingBundleIdentifier: Bundle.main.bundleIdentifier)
+        state.clipboardStore.captureLatest(sourceApplication: context?.application)
         state.prepareForPresentation(context: context)
         presentPanel()
     }
@@ -82,13 +87,15 @@ final class PanelController: NSObject, NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         guard notification.object as? NSWindow === panel,
               state.editorDraft == nil,
-              state.availableUpdate == nil else { return }
+              state.availableUpdate == nil,
+              !state.showsClearClipboardConfirmation else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   self.panel.isVisible,
                   !self.panel.isKeyWindow,
                   self.state.editorDraft == nil,
-                  self.state.availableUpdate == nil else {
+                  self.state.availableUpdate == nil,
+                  !self.state.showsClearClipboardConfirmation else {
                 return
             }
             self.hide()
@@ -110,7 +117,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func presentPanel() {
-        resizePanel(for: state.mode, resultCount: state.filteredRecords.count, animated: false)
+        resizePanel(for: state.mode, resultCount: state.currentResultCount, animated: false)
         positionPanel()
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
@@ -118,12 +125,30 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func observeContentSize() {
-        Publishers.CombineLatest3(state.$mode, state.$query, state.recordStore.$records)
+        Publishers.CombineLatest4(
+            state.$mode,
+            state.$query,
+            state.recordStore.$records,
+            state.clipboardStore.$entries
+        )
             .receive(on: RunLoop.main)
-            .sink { [weak self] values in
+            .sink { [weak self] mode, query, records, clipboardEntries in
                 guard let self else { return }
-                let (mode, query, records) = values
-                let count = mode == .records ? RecordSearch.results(for: query, in: records).count : 0
+                let count: Int
+                switch mode {
+                case .records:
+                    count = RecordSearch.results(for: query, in: records).count
+                case .clipboard:
+                    let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                    count = needle.isEmpty
+                        ? clipboardEntries.count
+                        : clipboardEntries.filter {
+                            $0.text.localizedCaseInsensitiveContains(needle)
+                                || ($0.sourceAppName?.localizedCaseInsensitiveContains(needle) ?? false)
+                        }.count
+                case .json:
+                    count = 0
+                }
                 self.resizePanel(for: mode, resultCount: count, animated: self.panel.isVisible)
             }
             .store(in: &subscriptions)
@@ -134,10 +159,10 @@ final class PanelController: NSObject, NSWindowDelegate {
         switch mode {
         case .json:
             height = 500
-        case .records:
+        case .records, .clipboard:
             let listHeight = resultCount == 0
                 ? 222
-                : min(390, CGFloat(resultCount * 66 + 15))
+                : min(390, CGFloat(resultCount * (mode == .clipboard ? 72 : 66) + 15))
             height = max(330, 106 + listHeight)
         }
 
@@ -196,17 +221,59 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    private func pasteClipboardEntry(_ entry: ClipboardEntry) {
+        do {
+            try state.clipboardStore.restore(entry)
+            state.selectedClipboardEntryID = entry.id
+        } catch {
+            state.statusMessage = error.localizedDescription
+            return
+        }
+
+        guard let context = state.sourceContext else {
+            state.statusMessage = "已放回剪贴板，可在目标位置按 ⌘V。"
+            return
+        }
+
+        guard SendTextEngine.isAccessibilityTrusted(prompt: true) else {
+            state.statusMessage = ClipboardPasteError.accessibilityPermissionRequired.localizedDescription
+            return
+        }
+
+        if let frontmost = NSWorkspace.shared.frontmostApplication,
+           frontmost.processIdentifier != context.processIdentifier,
+           frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
+            state.statusMessage = "发送目标已经变化；内容已放回剪贴板，可手动按 ⌘V。"
+            return
+        }
+
+        hide()
+        context.application.activate()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            guard let self else { return }
+            switch self.clipboardPasteEngine.paste(to: context) {
+            case .success:
+                break
+            case .failure(let error):
+                self.state.statusMessage = error.localizedDescription
+                self.presentPanel()
+            }
+        }
+    }
+
     private func installKeyMonitor() {
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel.isVisible, self.state.editorDraft == nil else { return event }
 
             if event.modifierFlags.contains(.command) {
                 switch event.charactersIgnoringModifiers?.lowercased() {
-                case "n": self.state.beginNewRecord(); return nil
+                case "n" where self.state.mode == .records: self.state.beginNewRecord(); return nil
                 case "e" where self.state.mode == .records: self.state.beginEditingSelected(); return nil
                 case "q": NSApp.terminate(nil); return nil
                 case "1": self.state.switchMode(.records); return nil
-                case "2": self.state.switchMode(.json); return nil
+                case "2": self.state.switchMode(.clipboard); return nil
+                case "3": self.state.switchMode(.json); return nil
                 default: break
                 }
             }
@@ -216,11 +283,11 @@ final class PanelController: NSObject, NSWindowDelegate {
                 return nil
             }
 
-            guard self.state.mode == .records else { return event }
+            guard self.state.mode != .json else { return event }
             switch event.keyCode {
             case 126: self.state.moveSelection(-1); return nil
             case 125: self.state.moveSelection(1); return nil
-            case 36, 76: self.state.sendSelected(); return nil
+            case 36, 76: self.state.performPrimaryAction(); return nil
             default: return event
             }
         }

@@ -4,6 +4,7 @@ import SwiftUI
 
 enum PanelMode: String, CaseIterable {
     case records
+    case clipboard
     case json
 }
 
@@ -14,8 +15,10 @@ final class AppState: ObservableObject {
         didSet { selectFirstResult() }
     }
     @Published var selectedRecordID: UUID?
+    @Published var selectedClipboardEntryID: UUID?
     @Published var sourceContext: SourceContext?
     @Published var editorDraft: RecordDraft?
+    @Published var showsClearClipboardConfirmation = false
     @Published var statusMessage: String?
     @Published var focusRequest = UUID()
     @Published var availableUpdate: AppRelease?
@@ -30,19 +33,25 @@ final class AppState: ObservableObject {
     @Published var jsonIndentWidth = 2
 
     let recordStore: RecordStore
+    let clipboardStore: ClipboardHistoryStore
     var onSendText: ((String, TextRecord) -> Void)?
+    var onPasteClipboard: ((ClipboardEntry) -> Void)?
     var onRequestHide: (() -> Void)?
 
-    private var storeSubscription: AnyCancellable?
+    private var storeSubscriptions = Set<AnyCancellable>()
     private var jsonTask: Task<Void, Never>?
     private var updateTask: Task<Void, Never>?
     private let updateService = GitHubUpdateService()
 
-    init(recordStore: RecordStore) {
+    init(recordStore: RecordStore, clipboardStore: ClipboardHistoryStore) {
         self.recordStore = recordStore
-        storeSubscription = recordStore.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
+        self.clipboardStore = clipboardStore
+        recordStore.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &storeSubscriptions)
+        clipboardStore.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &storeSubscriptions)
         selectFirstResult()
     }
 
@@ -53,6 +62,29 @@ final class AppState: ObservableObject {
     var selectedRecord: TextRecord? {
         guard let selectedRecordID else { return filteredRecords.first }
         return filteredRecords.first { $0.id == selectedRecordID }
+    }
+
+    var filteredClipboardEntries: [ClipboardEntry] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return clipboardStore.entries }
+        return clipboardStore.entries.filter { entry in
+            entry.text.localizedCaseInsensitiveContains(needle)
+                || (entry.sourceAppName?.localizedCaseInsensitiveContains(needle) ?? false)
+        }
+    }
+
+    var selectedClipboardEntry: ClipboardEntry? {
+        guard let selectedClipboardEntryID else { return filteredClipboardEntries.first }
+        return filteredClipboardEntries.first { $0.id == selectedClipboardEntryID }
+            ?? filteredClipboardEntries.first
+    }
+
+    var currentResultCount: Int {
+        switch mode {
+        case .records: return filteredRecords.count
+        case .clipboard: return filteredClipboardEntries.count
+        case .json: return 0
+        }
     }
 
     var targetName: String {
@@ -72,22 +104,50 @@ final class AppState: ObservableObject {
         query = ""
         statusMessage = nil
         editorDraft = nil
+        selectedClipboardEntryID = clipboardStore.entries.first?.id
         selectFirstResult()
         focusRequest = UUID()
     }
 
     func switchMode(_ newMode: PanelMode) {
         mode = newMode
+        query = ""
+        if newMode == .clipboard {
+            selectedClipboardEntryID = clipboardStore.entries.first?.id
+        }
         statusMessage = nil
         focusRequest = UUID()
     }
 
     func moveSelection(_ offset: Int) {
-        let results = filteredRecords
-        guard !results.isEmpty else { selectedRecordID = nil; return }
-        let currentIndex = selectedRecordID.flatMap { id in results.firstIndex(where: { $0.id == id }) } ?? 0
-        let next = min(max(0, currentIndex + offset), results.count - 1)
-        selectedRecordID = results[next].id
+        switch mode {
+        case .records:
+            let results = filteredRecords
+            guard !results.isEmpty else { selectedRecordID = nil; return }
+            let currentIndex = selectedRecordID.flatMap { id in
+                results.firstIndex(where: { $0.id == id })
+            } ?? 0
+            let next = min(max(0, currentIndex + offset), results.count - 1)
+            selectedRecordID = results[next].id
+        case .clipboard:
+            let results = filteredClipboardEntries
+            guard !results.isEmpty else { selectedClipboardEntryID = nil; return }
+            let currentIndex = selectedClipboardEntryID.flatMap { id in
+                results.firstIndex(where: { $0.id == id })
+            } ?? 0
+            let next = min(max(0, currentIndex + offset), results.count - 1)
+            selectedClipboardEntryID = results[next].id
+        case .json:
+            break
+        }
+    }
+
+    func performPrimaryAction() {
+        switch mode {
+        case .records: sendSelected()
+        case .clipboard: pasteSelectedClipboard()
+        case .json: break
+        }
     }
 
     func sendSelected() {
@@ -164,6 +224,35 @@ final class AppState: ObservableObject {
         try? recordStore.markUsed(record)
     }
 
+    func pasteSelectedClipboard() {
+        guard let entry = selectedClipboardEntry else { return }
+        onPasteClipboard?(entry)
+    }
+
+    func copySelectedClipboard() {
+        guard let entry = selectedClipboardEntry else { return }
+        do {
+            try clipboardStore.restore(entry)
+            selectedClipboardEntryID = entry.id
+            statusMessage = "已放回剪贴板，可按 ⌘V 粘贴。"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func deleteClipboardEntry(_ entry: ClipboardEntry) {
+        clipboardStore.delete(entry)
+        selectedClipboardEntryID = filteredClipboardEntries.first?.id
+        statusMessage = nil
+    }
+
+    func clearClipboardHistory() {
+        clipboardStore.clear()
+        selectedClipboardEntryID = nil
+        showsClearClipboardConfirmation = false
+        statusMessage = "剪贴板历史已清空。"
+    }
+
     func checkForUpdates() {
         guard !isUpdateBusy else { return }
         isCheckingForUpdates = true
@@ -232,9 +321,19 @@ final class AppState: ObservableObject {
     }
 
     private func selectFirstResult() {
-        let results = RecordSearch.results(for: query, in: recordStore.records)
-        if !results.contains(where: { $0.id == selectedRecordID }) {
-            selectedRecordID = results.first?.id
+        switch mode {
+        case .records:
+            let results = RecordSearch.results(for: query, in: recordStore.records)
+            if !results.contains(where: { $0.id == selectedRecordID }) {
+                selectedRecordID = results.first?.id
+            }
+        case .clipboard:
+            let results = filteredClipboardEntries
+            if !results.contains(where: { $0.id == selectedClipboardEntryID }) {
+                selectedClipboardEntryID = results.first?.id
+            }
+        case .json:
+            break
         }
     }
 

@@ -19,6 +19,8 @@ struct PanelView: View {
                     switch state.mode {
                     case .records:
                         RecordListView(state: state)
+                    case .clipboard:
+                        ClipboardHistoryView(state: state)
                     case .json:
                         JSONWorkbenchView(state: state)
                     }
@@ -38,12 +40,12 @@ struct PanelView: View {
                 .strokeBorder(LumaTheme.silverline.opacity(0.58), lineWidth: 0.7)
                 .padding(1)
         }
-        .onAppear { searchFocused = state.mode == .records }
+        .onAppear { searchFocused = state.mode != .json }
         .onChange(of: state.focusRequest) { _, _ in
-            searchFocused = state.mode == .records
+            searchFocused = state.mode != .json
         }
         .onChange(of: state.mode) { _, mode in
-            searchFocused = mode == .records
+            searchFocused = mode != .json
         }
         .sheet(item: $state.editorDraft) { draft in
             RecordEditorView(
@@ -68,6 +70,14 @@ struct PanelView: View {
                 secondaryButton: .cancel(Text("稍后"))
             )
         }
+        .alert("清空剪贴板历史？", isPresented: $state.showsClearClipboardConfirmation) {
+            Button("清空", role: .destructive) {
+                state.clearClipboardHistory()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("这会删除 Luma 在本机保存的全部剪贴板历史，且无法撤销。")
+        }
     }
 
     @ViewBuilder
@@ -89,7 +99,11 @@ struct PanelView: View {
                     .font(.system(size: 20, weight: .medium, design: .rounded))
                     .foregroundStyle(LumaTheme.graphite)
                     .focused($searchFocused)
-                    .onSubmit { state.sendSelected() }
+                    .onSubmit { state.performPrimaryAction() }
+
+                HeaderButton(title: "剪贴板", systemImage: "doc.on.clipboard") {
+                    state.switchMode(.clipboard)
+                }
 
                 HeaderButton(title: "JSON", systemImage: "curlybraces") {
                     state.switchMode(.json)
@@ -102,10 +116,53 @@ struct PanelView: View {
             .padding(.horizontal, 18)
             .frame(height: 62)
 
+        case .clipboard:
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(LumaTheme.lilacWash)
+                    Image(systemName: "doc.on.clipboard.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(LumaTheme.iris)
+                }
+                .frame(width: 34, height: 34)
+
+                TextField("搜索剪贴板历史…", text: $state.query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundStyle(LumaTheme.graphite)
+                    .focused($searchFocused)
+                    .onSubmit { state.performPrimaryAction() }
+
+                HeaderButton(title: "记录", systemImage: "text.quote") {
+                    state.switchMode(.records)
+                }
+
+                HeaderButton(title: "JSON", systemImage: "curlybraces") {
+                    state.switchMode(.json)
+                }
+
+                HeaderButton(title: "复制", systemImage: "doc.on.doc") {
+                    state.copySelectedClipboard()
+                }
+                .disabled(state.selectedClipboardEntry == nil)
+
+                HeaderButton(title: "清空", systemImage: "trash") {
+                    state.showsClearClipboardConfirmation = true
+                }
+                .disabled(state.clipboardStore.entries.isEmpty)
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 62)
+
         case .json:
             HStack(spacing: 10) {
                 HeaderButton(title: "记录", systemImage: "chevron.left") {
                     state.switchMode(.records)
+                }
+
+                HeaderButton(title: "剪贴板", systemImage: "doc.on.clipboard") {
+                    state.switchMode(.clipboard)
                 }
 
                 Text("JSON")
@@ -320,6 +377,155 @@ private struct RecordRowView: View {
     }
 }
 
+private struct ClipboardHistoryView: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        Group {
+            if state.filteredClipboardEntries.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    ZStack {
+                        Circle().fill(LumaTheme.lilacWash)
+                        Image(systemName: state.query.isEmpty ? "doc.on.clipboard" : "magnifyingglass")
+                            .font(.system(size: 25, weight: .medium))
+                            .foregroundStyle(LumaTheme.iris)
+                    }
+                    .frame(width: 54, height: 54)
+                    Text(state.query.isEmpty ? "还没有剪贴板历史" : "没有匹配的剪贴板内容")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(LumaTheme.graphite)
+                    Text(
+                        state.query.isEmpty
+                            ? "Luma 运行期间新复制的文本会自动出现在这里。"
+                            : "试试搜索正文或来源应用。"
+                    )
+                    .font(.system(size: 12))
+                    .foregroundStyle(LumaTheme.muted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 5) {
+                            ForEach(state.filteredClipboardEntries) { entry in
+                                ClipboardRowView(
+                                    entry: entry,
+                                    isSelected: state.selectedClipboardEntry?.id == entry.id,
+                                    onSelect: { state.selectedClipboardEntryID = entry.id },
+                                    onPaste: {
+                                        state.selectedClipboardEntryID = entry.id
+                                        state.pasteSelectedClipboard()
+                                    }
+                                )
+                                .id(entry.id)
+                                .contextMenu {
+                                    Button("粘贴到原应用") {
+                                        state.selectedClipboardEntryID = entry.id
+                                        state.pasteSelectedClipboard()
+                                    }
+                                    Button("仅复制到剪贴板") {
+                                        state.selectedClipboardEntryID = entry.id
+                                        state.copySelectedClipboard()
+                                    }
+                                    Divider()
+                                    Button("删除", role: .destructive) {
+                                        state.deleteClipboardEntry(entry)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(10)
+                    }
+                    .onChange(of: state.selectedClipboardEntryID) { _, selectedID in
+                        guard let selectedID else { return }
+                        withAnimation(.easeOut(duration: 0.12)) {
+                            proxy.scrollTo(selectedID, anchor: .center)
+                        }
+                    }
+                }
+            }
+        }
+        .background(LumaTheme.pearl.opacity(0.76))
+    }
+}
+
+private struct ClipboardRowView: View {
+    let entry: ClipboardEntry
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onPaste: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.8) : LumaTheme.mercury.opacity(0.9))
+                Image(systemName: "doc.on.clipboard")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(isSelected ? LumaTheme.iris : LumaTheme.muted.opacity(0.72))
+            }
+            .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(entry.preview)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(LumaTheme.graphite)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+
+                HStack(spacing: 7) {
+                    if let source = entry.sourceAppName, !source.isEmpty {
+                        Text(source)
+                            .lineLimit(1)
+                        Text("·")
+                    }
+                    Text(entry.copiedAt, style: .relative)
+                    Text("·")
+                    Text("\(entry.text.count) 字符")
+                }
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(LumaTheme.muted)
+            }
+
+            Spacer(minLength: 12)
+
+            if isSelected {
+                HStack(spacing: 5) {
+                    Text("粘贴")
+                    Image(systemName: "return")
+                }
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(LumaTheme.iris)
+                .padding(.horizontal, 8)
+                .frame(height: 25)
+                .background(Color.white.opacity(0.72))
+                .clipShape(Capsule())
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 67)
+        .background(isSelected ? LumaTheme.lilacWash.opacity(0.82) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(isSelected ? LumaTheme.iris.opacity(0.34) : Color.clear, lineWidth: 0.8)
+        }
+        .overlay(alignment: .leading) {
+            if isSelected {
+                Capsule()
+                    .fill(LumaTheme.iris)
+                    .frame(width: 3, height: 39)
+                    .padding(.leading, 1)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2, perform: onPaste)
+        .onTapGesture(perform: onSelect)
+    }
+}
+
 private struct JSONWorkbenchView: View {
     @ObservedObject var state: AppState
 
@@ -424,7 +630,7 @@ private struct TargetRailView: View {
                         .resizable()
                         .scaledToFit()
                         .frame(width: 18, height: 18)
-                    Text(state.mode == .records ? "↵ 发送到 \(state.targetName)" : "发送 JSON 到 \(state.targetName)")
+                    Text(targetDescription)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(LumaTheme.graphite)
                 }
@@ -434,6 +640,8 @@ private struct TargetRailView: View {
                 if state.mode == .records {
                     Text("⌘E 编辑")
                     Text("⌘N 新建")
+                } else if state.mode == .clipboard {
+                    Text("双击或 ↵ 粘贴")
                 } else if !state.jsonOutput.isEmpty {
                     Button("发送结果") { state.sendJSONOutput() }
                         .buttonStyle(.plain)
@@ -464,6 +672,19 @@ private struct TargetRailView: View {
             .padding(.horizontal, 14)
             .frame(height: 43)
             .background(.ultraThinMaterial)
+        }
+    }
+
+    private var targetDescription: String {
+        switch state.mode {
+        case .records:
+            return "↵ 发送到 \(state.targetName)"
+        case .clipboard:
+            return state.sourceContext == nil
+                ? "↵ 放回剪贴板"
+                : "↵ 粘贴到 \(state.targetName)"
+        case .json:
+            return "发送 JSON 到 \(state.targetName)"
         }
     }
 }

@@ -101,6 +101,38 @@ enum SelfTestRunner {
             failures.append(Failure(name: "record persistence", detail: error.localizedDescription))
         }
 
+        let clipboardPersistenceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Luma-clipboard-self-test-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: clipboardPersistenceURL) }
+
+        let clipboardStore = ClipboardHistoryStore(
+            fileURL: clipboardPersistenceURL,
+            maximumEntryCount: 2,
+            startMonitoring: false
+        )
+        clipboardStore.record(text: "first", sourceAppName: "Terminal")
+        let firstID = clipboardStore.entries.first?.id
+        clipboardStore.record(text: "second", sourceAppName: "Messages")
+        clipboardStore.record(text: "first", sourceAppName: "Ghostty")
+        check("clipboard deduplicates", clipboardStore.entries.count == 2)
+        check("clipboard promotes duplicate", clipboardStore.entries.first?.text == "first")
+        check("clipboard preserves duplicate id", clipboardStore.entries.first?.id == firstID)
+        check("clipboard refreshes source", clipboardStore.entries.first?.sourceAppName == "Ghostty")
+
+        clipboardStore.record(text: "third")
+        check("clipboard enforces limit", clipboardStore.entries.map(\.text) == ["third", "first"])
+
+        let reloadedClipboardStore = ClipboardHistoryStore(
+            fileURL: clipboardPersistenceURL,
+            maximumEntryCount: 2,
+            startMonitoring: false
+        )
+        check("clipboard history persists", reloadedClipboardStore.entries.map(\.text) == ["third", "first"])
+        check(
+            "clipboard preview flattens controls",
+            ClipboardEntry(text: "line 1\nline 2\tvalue").preview == "line 1 ↵ line 2 ⇥ value"
+        )
+
         if failures.isEmpty {
             print("Luma self-test: \(checksRun) checks passed")
             return true
