@@ -146,7 +146,7 @@ final class PanelController: NSObject, NSWindowDelegate {
                             $0.text.localizedCaseInsensitiveContains(needle)
                                 || ($0.sourceAppName?.localizedCaseInsensitiveContains(needle) ?? false)
                         }.count
-                case .json:
+                case .json, .diff:
                     count = 0
                 }
                 self.resizePanel(for: mode, resultCount: count, animated: self.panel.isVisible)
@@ -157,6 +157,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     private func resizePanel(for mode: PanelMode, resultCount: Int, animated: Bool) {
         let height: CGFloat
         switch mode {
+        case .diff:
+            height = 620
         case .json:
             height = 500
         case .records, .clipboard:
@@ -166,10 +168,18 @@ final class PanelController: NSObject, NSWindowDelegate {
             height = max(330, 106 + listHeight)
         }
 
-        guard abs(panel.frame.height - height) > 0.5 else { return }
+        let visibleFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        let width = min(mode == .diff ? 960.0 : 720.0, visibleFrame?.width ?? 960)
+        let fittedHeight = min(height, visibleFrame?.height ?? height)
+        guard abs(panel.frame.height - fittedHeight) > 0.5 || abs(panel.frame.width - width) > 0.5 else { return }
         var frame = panel.frame
-        frame.origin.y = frame.maxY - height
-        frame.size.height = height
+        frame.origin.x = frame.midX - width / 2
+        frame.origin.y = frame.maxY - fittedHeight
+        frame.size = NSSize(width: width, height: fittedHeight)
+        if let visibleFrame {
+            frame.origin.x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - width)
+            frame.origin.y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - fittedHeight)
+        }
         panel.setFrame(frame, display: panel.isVisible, animate: animated)
         panel.invalidateShadow()
     }
@@ -181,7 +191,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         let panelSize = panel.frame.size
         let origin = NSPoint(
             x: visibleFrame.midX - panelSize.width / 2,
-            y: visibleFrame.maxY - panelSize.height - min(92, visibleFrame.height * 0.12)
+            y: max(visibleFrame.minY, visibleFrame.maxY - panelSize.height - min(92, visibleFrame.height * 0.12))
         )
         panel.setFrameOrigin(origin)
     }
@@ -266,6 +276,15 @@ final class PanelController: NSObject, NSWindowDelegate {
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel.isVisible, self.state.editorDraft == nil else { return event }
 
+            if self.state.mode == .diff,
+               event.modifierFlags.intersection([.command, .option, .control, .shift]) == [.command, .option] {
+                switch event.keyCode {
+                case 126: self.state.textDiff.moveToDifference(-1); return nil
+                case 125: self.state.textDiff.moveToDifference(1); return nil
+                default: break
+                }
+            }
+
             if event.modifierFlags.contains(.command) {
                 switch event.charactersIgnoringModifiers?.lowercased() {
                 case "n" where self.state.mode == .records: self.state.beginNewRecord(); return nil
@@ -274,6 +293,7 @@ final class PanelController: NSObject, NSWindowDelegate {
                 case "1": self.state.switchMode(.records); return nil
                 case "2": self.state.switchMode(.clipboard); return nil
                 case "3": self.state.switchMode(.json); return nil
+                case "4": self.state.switchMode(.diff); return nil
                 default: break
                 }
             }
@@ -283,7 +303,7 @@ final class PanelController: NSObject, NSWindowDelegate {
                 return nil
             }
 
-            guard self.state.mode != .json else { return event }
+            guard !self.state.mode.isTextWorkbench else { return event }
             switch event.keyCode {
             case 126: self.state.moveSelection(-1); return nil
             case 125: self.state.moveSelection(1); return nil

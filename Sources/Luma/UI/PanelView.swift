@@ -23,6 +23,8 @@ struct PanelView: View {
                         ClipboardHistoryView(state: state)
                     case .json:
                         JSONWorkbenchView(state: state)
+                    case .diff:
+                        TextDiffWorkbenchView(model: state.textDiff, focusRequest: state.focusRequest)
                     }
                 }
 
@@ -40,12 +42,12 @@ struct PanelView: View {
                 .strokeBorder(LumaTheme.silverline.opacity(0.58), lineWidth: 0.7)
                 .padding(1)
         }
-        .onAppear { searchFocused = state.mode != .json }
+        .onAppear { searchFocused = !state.mode.isTextWorkbench }
         .onChange(of: state.focusRequest) { _, _ in
-            searchFocused = state.mode != .json
+            searchFocused = !state.mode.isTextWorkbench
         }
         .onChange(of: state.mode) { _, mode in
-            searchFocused = mode != .json
+            searchFocused = !mode.isTextWorkbench
         }
         .sheet(item: $state.editorDraft) { draft in
             RecordEditorView(
@@ -112,6 +114,10 @@ struct PanelView: View {
                 HeaderButton(title: "新建", systemImage: "plus") {
                     state.beginNewRecord()
                 }
+                HeaderButton(title: "Diff", systemImage: "arrow.left.arrow.right") {
+                    state.switchMode(.diff)
+                }
+                .help("文本对比（⌘4）")
             }
             .padding(.horizontal, 18)
             .frame(height: 62)
@@ -151,6 +157,9 @@ struct PanelView: View {
                     state.showsClearClipboardConfirmation = true
                 }
                 .disabled(state.clipboardStore.entries.isEmpty)
+                HeaderButton(title: "Diff", systemImage: "arrow.left.arrow.right") {
+                    state.switchMode(.diff)
+                }
             }
             .padding(.horizontal, 18)
             .frame(height: 62)
@@ -168,14 +177,7 @@ struct PanelView: View {
                 Text("JSON")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundStyle(LumaTheme.graphite)
-
-                Text("严格模式")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(LumaTheme.iris)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(LumaTheme.lilacWash)
-                    .clipShape(Capsule())
+                    .help("严格校验 JSON")
 
                 Spacer()
 
@@ -195,6 +197,28 @@ struct PanelView: View {
                 HeaderButton(title: "复制", systemImage: "doc.on.doc") {
                     state.copyJSONOutput()
                 }
+                HeaderButton(title: "Diff", systemImage: "arrow.left.arrow.right") {
+                    state.switchMode(.diff)
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 62)
+
+        case .diff:
+            HStack(spacing: 10) {
+                HeaderButton(title: "记录", systemImage: "chevron.left") { state.switchMode(.records) }
+                HeaderButton(title: "剪贴板", systemImage: "doc.on.clipboard") { state.switchMode(.clipboard) }
+                HeaderButton(title: "JSON", systemImage: "curlybraces") { state.switchMode(.json) }
+                Rectangle().fill(LumaTheme.silverline).frame(width: 1, height: 22)
+                Image(systemName: "arrow.left.arrow.right")
+                    .foregroundStyle(LumaTheme.iris)
+                Text("文本 Diff")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundStyle(LumaTheme.graphite)
+                Spacer()
+                Text("红色删除 · 绿色新增")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(LumaTheme.muted)
             }
             .padding(.horizontal, 16)
             .frame(height: 62)
@@ -202,16 +226,19 @@ struct PanelView: View {
     }
 }
 
-private struct HeaderButton: View {
+struct HeaderButton: View {
     let title: String
     let systemImage: String
     let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
                 Text(title)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(LumaTheme.graphite.opacity(0.82))
@@ -225,6 +252,7 @@ private struct HeaderButton: View {
             }
         }
         .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.4)
         .help(title)
     }
 }
@@ -626,10 +654,15 @@ private struct TargetRailView: View {
                         .foregroundStyle(LumaTheme.graphite)
                         .lineLimit(1)
                 } else {
-                    Image(nsImage: state.targetIcon)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
+                    if state.mode == .diff {
+                        Image(systemName: "lock.shield")
+                            .foregroundStyle(LumaTheme.iris)
+                    } else {
+                        Image(nsImage: state.targetIcon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 18, height: 18)
+                    }
                     Text(targetDescription)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(LumaTheme.graphite)
@@ -642,7 +675,7 @@ private struct TargetRailView: View {
                     Text("⌘N 新建")
                 } else if state.mode == .clipboard {
                     Text("双击或 ↵ 粘贴")
-                } else if !state.jsonOutput.isEmpty {
+                } else if state.mode == .json && !state.jsonOutput.isEmpty {
                     Button("发送结果") { state.sendJSONOutput() }
                         .buttonStyle(.plain)
                         .font(.system(size: 11, weight: .semibold))
@@ -685,6 +718,8 @@ private struct TargetRailView: View {
                 : "↵ 粘贴到 \(state.targetName)"
         case .json:
             return "发送 JSON 到 \(state.targetName)"
+        case .diff:
+            return "本机对比 · 内容仅保留在本次运行中"
         }
     }
 }

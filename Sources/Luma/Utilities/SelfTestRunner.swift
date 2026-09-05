@@ -61,6 +61,8 @@ enum SelfTestRunner {
         check("search alias", RecordSearch.results(for: "hello", in: records).first?.name == "问候语")
         check("search tag", RecordSearch.results(for: "chat", in: records).first?.name == "常用回复")
 
+        TextDiffSelfTests.run { name, condition in check(name, condition) }
+
         let currentVersion = AppVersion(versionString: "0.2.0", buildString: "7")
         let newerBuild = AppVersion(releaseTag: "v0.2.0-build.8.1-abcdef0")
         let newerVersion = AppVersion(releaseTag: "v0.3.0-build.1.1-1234567")

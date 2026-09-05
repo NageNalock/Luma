@@ -11,8 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installMainMenu()
 
         let arguments = Set(CommandLine.arguments)
-        let recordStore = makeRecordStore(demo: arguments.contains("--demo"))
-        let clipboardStore = makeClipboardStore(demo: arguments.contains("--clipboard-demo"))
+        let recordStore = makeRecordStore(demo: arguments.contains("--demo") || arguments.contains("--diff-demo"))
+        let clipboardStore = makeClipboardStore(demo: arguments.contains("--clipboard-demo") || arguments.contains("--diff-demo"))
         let state = AppState(recordStore: recordStore, clipboardStore: clipboardStore)
         self.state = state
         let panelController = PanelController(state: state)
@@ -47,14 +47,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if arguments.contains("--clipboard-demo") {
             state.switchMode(.clipboard)
         }
+        if arguments.contains("--diff-demo") {
+            state.textDiff.leftText = """
+            # Luma 服务配置
+            service: gateway
+            version: 1.0.0
+            host: localhost
+            port: 8080
+
+            # 访问控制
+            auth: enabled
+            timeout: 30
+            retries: 3
+
+            # 发布说明
+            欢迎使用 Luma ✨
+            支持预设文本与 JSON
+            """
+            state.textDiff.rightText = """
+            # Luma 服务配置
+            service: gateway
+            version: 1.1.0
+            host: localhost
+            port: 9090
+
+            # 访问控制
+            auth: enabled
+            timeout: 60
+            retries: 3
+            cache: true
+
+            # 发布说明
+            欢迎使用 Luma ✨
+            支持预设文本、JSON 与文本 Diff
+            """
+            state.switchMode(.diff)
+        }
         let hasPresentationArgument = arguments.contains("--show")
             || arguments.contains("--demo")
             || arguments.contains("--clipboard-demo")
             || arguments.contains("--json-demo")
             || arguments.contains("--json-error-demo")
+            || arguments.contains("--diff-demo")
         if hasPresentationArgument {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                panelController.show()
+                if arguments.contains("--diff-demo") {
+                    panelController.showWithoutSource()
+                } else {
+                    panelController.show()
+                }
             }
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
@@ -115,6 +156,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController?.state.switchMode(.clipboard)
     }
 
+    @objc private func showDiff() {
+        panelController?.show()
+        panelController?.state.switchMode(.diff)
+    }
+
     @objc private func checkForUpdates() {
         panelController?.showWithoutSource(message: "正在检查 GitHub Release…")
         state?.checkForUpdates()
@@ -133,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || arguments.contains("--clipboard-demo")
             || arguments.contains("--json-demo")
             || arguments.contains("--json-error-demo")
+            || arguments.contains("--diff-demo")
         guard !isAutomatedRun else { return }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
@@ -175,6 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "新建记录", action: #selector(newRecord), keyEquivalent: "n")
         menu.addItem(withTitle: "剪贴板历史", action: #selector(showClipboard), keyEquivalent: "")
         menu.addItem(withTitle: "JSON 工具", action: #selector(showJSON), keyEquivalent: "j")
+        menu.addItem(withTitle: "文本 Diff", action: #selector(showDiff), keyEquivalent: "4")
         menu.addItem(withTitle: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出 Luma", action: #selector(quit), keyEquivalent: "q")

@@ -6,6 +6,9 @@ enum PanelMode: String, CaseIterable {
     case records
     case clipboard
     case json
+    case diff
+
+    var isTextWorkbench: Bool { self == .json || self == .diff }
 }
 
 @MainActor
@@ -34,6 +37,7 @@ final class AppState: ObservableObject {
 
     let recordStore: RecordStore
     let clipboardStore: ClipboardHistoryStore
+    let textDiff = TextDiffState()
     var onSendText: ((String, TextRecord) -> Void)?
     var onPasteClipboard: ((ClipboardEntry) -> Void)?
     var onRequestHide: (() -> Void)?
@@ -83,7 +87,7 @@ final class AppState: ObservableObject {
         switch mode {
         case .records: return filteredRecords.count
         case .clipboard: return filteredClipboardEntries.count
-        case .json: return 0
+        case .json, .diff: return 0
         }
     }
 
@@ -137,7 +141,7 @@ final class AppState: ObservableObject {
             } ?? 0
             let next = min(max(0, currentIndex + offset), results.count - 1)
             selectedClipboardEntryID = results[next].id
-        case .json:
+        case .json, .diff:
             break
         }
     }
@@ -146,7 +150,7 @@ final class AppState: ObservableObject {
         switch mode {
         case .records: sendSelected()
         case .clipboard: pasteSelectedClipboard()
-        case .json: break
+        case .json, .diff: break
         }
     }
 
@@ -332,7 +336,7 @@ final class AppState: ObservableObject {
             if !results.contains(where: { $0.id == selectedClipboardEntryID }) {
                 selectedClipboardEntryID = results.first?.id
             }
-        case .json:
+        case .json, .diff:
             break
         }
     }
