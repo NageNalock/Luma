@@ -1,21 +1,36 @@
-# Luma
+<div align="center">
+  <img src="Resources/AppIcon.png" width="128" alt="Luma 图标">
+  <h1>Luma</h1>
+  <p>随时呼出的原生 macOS 综合效率台</p>
+</div>
 
-Luma 是一个原生 macOS 全局 Send Text 面板，并包含 JSON 格式化、高亮和精确错误定位。
+Luma 把工作中反复查找和粘贴的内容集中到一个轻量面板：预先准备的任意文本、刚刚复制过的内容，以及临时需要处理的 JSON。无需离开当前应用，按下 `⌥ Space` 即可搜索、选择并继续输入。
 
-## 当前功能
+项目希望解决的不是某一种命令或密码管理需求，而是减少终端、浏览器、编辑器和聊天窗口之间的重复切换。所有核心数据默认保存在本机。
 
-- `⌥ Space` 从任意应用呼出。
-- 使用名称、别名或标签搜索统一的文本记录。
-- 将记录原文发送到呼出前聚焦的位置。
-- 自动记录 Luma 运行期间新复制的文本，支持搜索最近 200 条剪贴板历史。
-- 从历史中选择内容后，先恢复剪贴板，再自动向呼出前的应用发送 `⌘V`；也可只恢复后手动粘贴。
-- 可选解析 `\n`、`\r`、`\t`、`\e`、`\a` 和 `\\`。
-- 可选隐藏正文预览。
-- 可将正文存入 macOS Keychain，避免写入记录数据库。
-- 可限制记录允许发送到哪些 bundle identifier。
-- JSON 严格校验、2/4 空格格式化、压缩、语义高亮、中文错误与行列定位。
-- 主界面、菜单栏和应用菜单均可检查 GitHub Release 更新或彻底退出进程。
-- Dock 与菜单栏都会显示 Luma；点击 Dock 图标可重新打开主面板。
+## 功能
+
+### 预设文本
+
+- 使用名称、别名或标签搜索任意预设内容。
+- 回车即可把原文发送到呼出 Luma 前聚焦的位置。
+- 支持解析 `\n`、`\r`、`\t`、`\e`、`\a` 和 `\\`。
+- 支持隐藏列表预览、限制目标应用，以及收藏和使用频次排序。
+- 敏感正文可存入 macOS Keychain，不写入普通记录文件。
+
+### 剪贴板历史
+
+- 自动记录 Luma 运行期间新复制的文本，保存最近 200 条。
+- 支持按正文或来源应用即时搜索，并显示复制时间和字符数。
+- 重复内容自动去重并移动到最前。
+- 回车或双击后先恢复剪贴板，再自动向原应用发送 `⌘V`。
+- 也可以仅恢复到剪贴板后手动粘贴，或删除单条及清空全部历史。
+
+### JSON 工作台
+
+- 严格校验 JSON，并用中文标出错误原因及准确行列。
+- 支持 2/4 空格格式化、压缩和语义高亮。
+- 格式化结果可以复制，也可以直接发送到原应用。
 
 ### 文本 Diff
 
@@ -26,22 +41,71 @@ Luma 是一个原生 macOS 全局 Send Text 面板，并包含 JSON 格式化、
 - 精确比较空格、换行与 Unicode 文本；大段无共同内容的改动会按区块高亮。
 - 对比在本机完成，内容只保留在当前运行中，切换工具或收起面板后仍可继续。
 
-## 更新
+### macOS 集成
 
-点击主界面右下角的“更新”，Luma 会读取 `NageNalock/Luma` 的 GitHub Releases。当前自动发布产出的是 prerelease，因此稳定版与预发布版都会参与版本比较。
+- `⌥ Space` 从任意应用呼出或隐藏面板。
+- 支持 Dock、菜单栏和标准应用菜单。
+- 点击面板外部会自动收起，不持续遮挡当前工作区。
+- 可从应用内检查 GitHub Release、校验 SHA-256 并打开新版 DMG。
+- Apple Silicon 与 Intel 均可运行，最低支持 macOS 14。
 
-发现新版本后，Luma 会把 DMG 下载到自身缓存目录，使用 Release 同名 `.sha256` 文件校验内容，再自动打开 DMG。安装仍由用户将新版本拖入“应用程序”完成；Luma 不会自行覆盖应用，也不需要访问“下载”文件夹。
+## 快捷键
 
-## 构建
+| 快捷键 | 操作 |
+| --- | --- |
+| `⌥ Space` | 呼出或隐藏 Luma |
+| `⌘1` | 预设文本 |
+| `⌘2` | 剪贴板历史 |
+| `⌘3` | JSON 工作台 |
+| `⌘4` | 文本 Diff |
+| `⌥⌘↑` / `⌥⌘↓` | 上一处 / 下一处文本差异（循环） |
+| `↑` / `↓` | 移动选择 |
+| `Return` | 发送或粘贴当前项目 |
+| `⌘E` | 编辑选中的预设文本 |
+| `⌘N` | 新建预设文本 |
+| `⌘Q` | 彻底退出 Luma |
 
-当前工程可以直接使用 macOS Command Line Tools：
+## 权限
+
+Luma 正常启动后会主动请求两项核心权限，不会等到第一次使用时才申请：
+
+- **剪贴板读取**：用于建立文本剪贴板历史。较新的 macOS 版本会询问是否允许访问，选择“始终允许”后才能持续记录。
+- **辅助功能**：用于把预设内容发送到其他应用，以及自动触发 `⌘V`。授权位置为 `系统设置 → 隐私与安全性 → 辅助功能 → Luma`。
+
+没有辅助功能权限时，剪贴板历史仍可恢复内容，但需要手动按 `⌘V`。自测、截图和界面演示模式不会触发权限弹窗。
+
+## 本地数据与隐私
+
+| 数据 | 保存位置 |
+| --- | --- |
+| 普通预设记录 | `~/Library/Application Support/Luma/records.json` |
+| 文本剪贴板历史 | `~/Library/Application Support/Luma/clipboard-history.json` |
+| 受保护的预设正文 | macOS Keychain，service 为 `com.luma.app.records` |
+
+剪贴板历史是本机上的普通 JSON 数据，可能包含复制过的敏感文本；可随时在 Luma 中清空。用户数据不会进入源码仓库，也不会被构建脚本复制进应用包。
+
+仓库遵循以下规则：
+
+- 不提交用户记录、剪贴板内容、日志、构建缓存、预览文件或打包产物。
+- 不提交环境变量文件、签名证书、配置描述文件或其他凭据。
+- Git 提交使用 GitHub noreply 身份，不依赖私人邮箱。
+
+## 安装与更新
+
+从 GitHub Release 下载 DMG，将 Luma 拖入“应用程序”后运行。应用内的“更新”会读取 `NageNalock/Luma` Releases，下载 DMG，校验同名 `.sha256` 文件后自动打开。
+
+当前自动发布仍使用 ad-hoc 签名，属于开发测试版本。每次下载新构建时，Gatekeeper 可能要求再次确认；要消除系统设置中的二次放行，需要使用稳定的 Developer ID 签名并完成 Apple notarization。
+
+## 本地构建
+
+使用 macOS Command Line Tools：
 
 ```bash
 swift build
 swift run Luma --self-test
 ```
 
-生成可运行的 `.app`：
+生成当前架构的 `.app`：
 
 ```bash
 chmod +x scripts/package-app.sh
@@ -49,40 +113,17 @@ chmod +x scripts/package-app.sh
 open ../outputs/Luma.app
 ```
 
+生成 Universal 2 可执行文件：
+
+```bash
+chmod +x scripts/build-universal.sh
+./scripts/build-universal.sh
+```
+
 也可以在安装完整 Xcode 后直接打开 `Package.swift`。
 
 ## 自动发布
 
-每次推送到 `main` 分支后，GitHub Actions 会运行自测、交叉编译 arm64 与 x86_64、合并为 Universal 2 应用，并创建包含 DMG 与 SHA-256 校验文件的 prerelease。也可以在 Actions 页面手动触发同一流程。
+推送到 `main` 后，GitHub Actions 会运行自测，分别构建 arm64 与 x86_64，合并成 Universal 2 应用，并创建带 SHA-256 校验文件的 prerelease。也可以从 Actions 页面手动触发。
 
-当前自动构建使用 ad-hoc 签名，适合开发测试。正式分发时应在仓库 Secrets 中配置 Developer ID，并增加 Apple notarization 步骤。更新器不会改变签名状态；ad-hoc 构建替换应用后，macOS 仍可能要求重新确认既有隐私权限。
-
-## 权限
-
-浏览记录和 JSON 功能不需要额外权限。Luma 正常启动后会立即请求剪贴板读取和辅助功能权限，不会等到第一次发送或粘贴时才申请。辅助功能授权位置为：
-
-`系统设置 → 隐私与安全性 → 辅助功能 → Luma`
-
-授权后重新触发发送即可。
-
-剪贴板历史通过 macOS 系统剪贴板读取文本。较新的 macOS 版本可能首次询问是否允许 Luma 读取剪贴板；选择“始终允许”后即可持续记录。即使没有辅助功能权限，Luma 仍能把选中的历史内容放回剪贴板，之后可手动按 `⌘V`。
-
-## 数据位置
-
-- 普通记录：`~/Library/Application Support/Luma/records.json`
-- 文本剪贴板历史：`~/Library/Application Support/Luma/clipboard-history.json`
-- 开启“存入钥匙串”的正文：macOS Keychain，service 为 `com.luma.app.records`
-
-用户创建的记录、剪贴板历史与钥匙串内容仅保存在本机，不属于源码仓库，也不会被构建脚本复制进应用包。剪贴板历史仅记录文本、自动去重并限制为最近 200 条；清空操作不可撤销。
-
-## 仓库隐私
-
-- 不提交用户记录、日志、构建缓存、预览文件或打包产物。
-- 不提交环境变量文件、签名证书、配置描述文件或其他凭据文件。
-- Git 提交使用项目级中性身份，不依赖开发者的全局姓名或私人邮箱。
-
-## 当前开发约束
-
-- 默认快捷键暂时固定为 `⌥ Space`。
-- 跨应用输入依赖目标应用对 Accessibility 或 CGEvent 的支持，需要继续覆盖终端 Secure Input 等真实场景。
-- 当前 `.app` 使用 ad-hoc 签名，仅供本机开发测试；正式分发需要 Developer ID 签名与 notarization。
+正式分发需要在 GitHub Secrets 中安全配置 Developer ID 证书与 Apple 公证凭据；证书、密码和 API 密钥不得写入仓库。
