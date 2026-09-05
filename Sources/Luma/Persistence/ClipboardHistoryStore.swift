@@ -91,6 +91,10 @@ final class ClipboardHistoryStore: ObservableObject {
         capturePasteboardChange(sourceApplication: sourceApplication)
     }
 
+    func requestReadAccess() {
+        _ = NSPasteboard.general.string(forType: .string)
+    }
+
     private func startMonitor() {
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in

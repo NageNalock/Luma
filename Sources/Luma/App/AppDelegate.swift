@@ -28,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panelController.showWithoutSource(message: error.localizedDescription)
         }
 
+        requestRequiredPermissionsAtLaunch(arguments: arguments, clipboardStore: clipboardStore)
+
         if arguments.contains("--json-demo") {
             state.jsonInput = #"{"service":"gateway","ports":[80,443],"enabled":true}"#
             state.switchMode(.json)
@@ -120,6 +122,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    private func requestRequiredPermissionsAtLaunch(
+        arguments: Set<String>,
+        clipboardStore: ClipboardHistoryStore
+    ) {
+        let isAutomatedRun = arguments.contains("--snapshot")
+            || arguments.contains("--demo")
+            || arguments.contains("--clipboard-demo")
+            || arguments.contains("--json-demo")
+            || arguments.contains("--json-error-demo")
+        guard !isAutomatedRun else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            clipboardStore.requestReadAccess()
+            _ = SendTextEngine.isAccessibilityTrusted(prompt: true)
+        }
     }
 
     private func configureStatusItem() {

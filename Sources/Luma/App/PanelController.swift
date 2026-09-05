@@ -192,7 +192,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             return
         }
 
-        guard SendTextEngine.isAccessibilityTrusted(prompt: true) else {
+        guard SendTextEngine.isAccessibilityTrusted(prompt: false) else {
             state.statusMessage = "请在系统设置的“隐私与安全性 → 辅助功能”中允许 Luma，然后重试。"
             return
         }
@@ -235,7 +235,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             return
         }
 
-        guard SendTextEngine.isAccessibilityTrusted(prompt: true) else {
+        guard SendTextEngine.isAccessibilityTrusted(prompt: false) else {
             state.statusMessage = ClipboardPasteError.accessibilityPermissionRequired.localizedDescription
             return
         }
