@@ -102,7 +102,7 @@ Luma 正常启动后会主动请求两项核心权限，不会等到第一次使
 
 ## 安装与更新
 
-从 GitHub Release 下载 DMG，将 Luma 拖入“应用程序”后运行。应用内的“更新”会读取 `NageNalock/Luma` Releases，下载 DMG，校验同名 `.sha256` 文件后自动打开。
+从 GitHub Release 下载 DMG，将 Luma 拖入“应用程序”后运行。应用内的“更新”直接读取 `NageNalock/Luma` 的公开 Releases 网页与附件列表，支持预发布版本，不需要 GitHub Token，也不占用 REST API 的匿名额度。检查结果缓存一分钟；下载 DMG 后仍会校验同名 `.sha256` 文件，通过后再打开。
 
 当前自动发布仍使用 ad-hoc 签名，属于开发测试版本。每次下载新构建时，Gatekeeper 可能要求再次确认；要消除系统设置中的二次放行，需要使用稳定的 Developer ID 签名并完成 Apple notarization。
 

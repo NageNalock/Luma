@@ -87,6 +87,9 @@ enum GitHubUpdateError: LocalizedError {
         case .invalidResponse:
             return "GitHub 返回了无法识别的响应。"
         case .requestFailed(let statusCode):
+            if statusCode == 403 || statusCode == 429 {
+                return "GitHub 暂时拒绝了网页请求（HTTP \(statusCode)），请稍后重试。"
+            }
             return "GitHub 请求失败（HTTP \(statusCode)）。"
         case .noDownloadableRelease:
             return "GitHub Release 中没有可用的 Luma DMG。"
@@ -103,55 +106,34 @@ enum GitHubUpdateError: LocalizedError {
 }
 
 actor GitHubUpdateService {
-    private struct ReleaseResponse: Decodable {
-        let tagName: String
-        let name: String?
-        let htmlURL: URL
-        let draft: Bool
-        let prerelease: Bool
-        let assets: [AssetResponse]
-
-        enum CodingKeys: String, CodingKey {
-            case tagName = "tag_name"
-            case name
-            case htmlURL = "html_url"
-            case draft
-            case prerelease
-            case assets
-        }
-    }
-
-    private struct AssetResponse: Decodable {
-        let name: String
-        let browserDownloadURL: URL
-
-        enum CodingKeys: String, CodingKey {
-            case name
-            case browserDownloadURL = "browser_download_url"
-        }
-    }
-
-    private static let releasesURL = URL(
-        string: "https://api.github.com/repos/NageNalock/Luma/releases?per_page=20"
-    )!
-
     private let session: URLSession
+    private var cachedRelease: (release: AppRelease, expiresAt: Date)?
 
     init(session: URLSession = .shared) {
         self.session = session
     }
 
     func newestRelease() async throws -> AppRelease {
-        let request = try makeRequest(for: Self.releasesURL)
-        let (data, response) = try await session.data(for: request)
-        try validate(response)
-
-        let releases = try JSONDecoder().decode([ReleaseResponse].self, from: data)
-        let candidates = releases.compactMap(Self.makeRelease)
-        guard let newest = candidates.max(by: { $0.version < $1.version }) else {
-            throw GitHubUpdateError.noDownloadableRelease
+        if let cachedRelease, cachedRelease.expiresAt > Date() {
+            return cachedRelease.release
         }
-        return newest
+
+        let data = try await fetchPage(GitHubReleasePageParser.releasesURL)
+        let releases = try GitHubReleasePageParser.releases(from: data)
+        for page in releases {
+            let assets: Data
+            do {
+                assets = try await fetchPage(page.assetsURL)
+            } catch GitHubUpdateError.requestFailed(404) {
+                // A release can disappear between loading the list and its assets.
+                continue
+            }
+            if let release = try GitHubReleasePageParser.release(page, assets: assets) {
+                cachedRelease = (release, Date().addingTimeInterval(60))
+                return release
+            }
+        }
+        throw GitHubUpdateError.noDownloadableRelease
     }
 
     func download(_ release: AppRelease) async throws -> URL {
@@ -206,38 +188,26 @@ actor GitHubUpdateService {
         return checksum.lowercased()
     }
 
-    private static func makeRelease(_ response: ReleaseResponse) -> AppRelease? {
-        guard !response.draft,
-              let version = AppVersion(releaseTag: response.tagName),
-              let dmg = response.assets.first(where: { $0.name.hasSuffix(".dmg") }),
-              let checksum = response.assets.first(where: { $0.name == "\(dmg.name).sha256" }) else {
-            return nil
-        }
-
-        return AppRelease(
-            tagName: response.tagName,
-            title: response.name ?? response.tagName,
-            pageURL: response.htmlURL,
-            version: version,
-            isPrerelease: response.prerelease,
-            dmgName: dmg.name,
-            dmgURL: dmg.browserDownloadURL,
-            checksumURL: checksum.browserDownloadURL
-        )
+    private func fetchPage(_ url: URL) async throws -> Data {
+        let request = try makeRequest(for: url, accept: "text/html")
+        let (data, response) = try await session.data(for: request)
+        try validate(response)
+        return data
     }
 
-    private func makeRequest(for url: URL) throws -> URLRequest {
+    private func makeRequest(for url: URL, accept: String = "application/octet-stream") throws -> URLRequest {
         guard url.scheme == "https",
-              let host = url.host,
-              host == "api.github.com" || host == "github.com" else {
+              url.host == "github.com",
+              url.user == nil, url.password == nil,
+              url.port == nil || url.port == 443 else {
             throw GitHubUpdateError.invalidAssetURL
         }
 
         var request = URLRequest(url: url)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
-        request.setValue("Luma/\(AppVersion.current.displayString)", forHTTPHeaderField: "User-Agent")
+        request.cachePolicy = .useProtocolCachePolicy
+        request.setValue(accept, forHTTPHeaderField: "Accept")
+        let version = AppVersion.current.components.map(String.init).joined(separator: ".")
+        request.setValue("Luma/\(version)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30
         return request
     }
