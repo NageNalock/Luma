@@ -19,6 +19,7 @@ final class AppState: ObservableObject {
     }
     @Published var selectedRecordID: UUID?
     @Published var selectedClipboardEntryID: UUID?
+    @Published private(set) var clipboardTimeReference = Date()
     @Published var sourceContext: SourceContext?
     @Published var editorDraft: RecordDraft?
     @Published var showsClearClipboardConfirmation = false
@@ -104,6 +105,7 @@ final class AppState: ObservableObject {
     }
 
     func prepareForPresentation(context: SourceContext?) {
+        clipboardTimeReference = Date()
         sourceContext = context
         query = ""
         statusMessage = nil
@@ -117,6 +119,7 @@ final class AppState: ObservableObject {
         mode = newMode
         query = ""
         if newMode == .clipboard {
+            clipboardTimeReference = Date()
             selectedClipboardEntryID = clipboardStore.entries.first?.id
         }
         statusMessage = nil

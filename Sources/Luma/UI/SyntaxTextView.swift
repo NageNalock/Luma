@@ -31,6 +31,7 @@ struct SyntaxTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        guard textView.string != text else { return }
         let selectedRanges = textView.selectedRanges
         textView.textStorage?.setAttributedString(JSONSyntaxHighlighter.attributedString(for: text))
         textView.selectedRanges = selectedRanges.filter { NSMaxRange($0.rangeValue) <= textView.string.utf16.count }

@@ -16,12 +16,13 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let clipboardPasteEngine = ClipboardPasteEngine()
     private var localKeyMonitor: Any?
     private var subscriptions = Set<AnyCancellable>()
+    private var isApplyingPanelSize = false
 
     init(state: AppState) {
         self.state = state
         panel = LumaPanel(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 500),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.borderless, .resizable, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -40,6 +41,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.isMovableByWindowBackground = true
         panel.animationBehavior = .utilityWindow
         let hostingView = NSHostingView(rootView: PanelView(state: state))
+        // The controller owns the window's limits; SwiftUI content must not lock its size.
+        hostingView.sizingOptions = []
         hostingView.wantsLayer = true
         hostingView.layer?.cornerRadius = 18
         hostingView.layer?.cornerCurve = .continuous
@@ -84,6 +87,19 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.orderOut(nil)
     }
 
+    func windowDidEndLiveResize(_ notification: Notification) {
+        guard notification.object as? NSWindow === panel else { return }
+        UserDefaults.standard.set(
+            ["width": panel.frame.width, "height": panel.frame.height],
+            forKey: panelSizeKey(for: state.mode)
+        )
+    }
+
+    func windowDidChangeScreen(_ notification: Notification) {
+        guard notification.object as? NSWindow === panel else { return }
+        resizePanel(for: state.mode, resultCount: state.currentResultCount, animated: false)
+    }
+
     func windowDidResignKey(_ notification: Notification) {
         guard notification.object as? NSWindow === panel,
               state.editorDraft == nil,
@@ -117,8 +133,10 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func presentPanel() {
-        resizePanel(for: state.mode, resultCount: state.currentResultCount, animated: false)
-        positionPanel()
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main
+        resizePanel(for: state.mode, resultCount: state.currentResultCount, animated: false, on: screen)
+        positionPanel(on: screen)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         panel.invalidateShadow()
@@ -154,13 +172,17 @@ final class PanelController: NSObject, NSWindowDelegate {
             .store(in: &subscriptions)
     }
 
-    private func resizePanel(for mode: PanelMode, resultCount: Int, animated: Bool) {
+    private func resizePanel(for mode: PanelMode, resultCount: Int, animated: Bool, on screen: NSScreen? = nil) {
+        guard !panel.inLiveResize, !isApplyingPanelSize else { return }
+        isApplyingPanelSize = true
+        defer { isApplyingPanelSize = false }
+
         let height: CGFloat
         switch mode {
         case .diff:
             height = 620
         case .json:
-            height = 500
+            height = 680
         case .records, .clipboard:
             let listHeight = resultCount == 0
                 ? 222
@@ -168,25 +190,47 @@ final class PanelController: NSObject, NSWindowDelegate {
             height = max(330, 106 + listHeight)
         }
 
-        let visibleFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
-        let width = min(mode == .diff ? 960.0 : 720.0, visibleFrame?.width ?? 960)
-        let fittedHeight = min(height, visibleFrame?.height ?? height)
-        guard abs(panel.frame.height - fittedHeight) > 0.5 || abs(panel.frame.width - width) > 0.5 else { return }
+        let visibleFrame = (screen ?? panel.screen ?? NSScreen.main)?.visibleFrame
+        let maximumSize = visibleFrame?.size ?? NSSize(width: 4096, height: 4096)
+        let minimumSize = NSSize(
+            width: min(720, maximumSize.width),
+            height: min(mode.isTextWorkbench ? 420 : 330, maximumSize.height)
+        )
+        panel.contentMinSize = minimumSize
+        panel.contentMaxSize = maximumSize
+
+        let defaultWidth: CGFloat = mode == .json ? 1040 : (mode == .diff ? 960 : 720)
+        let preferredSize = savedPanelSize(for: mode) ?? NSSize(width: defaultWidth, height: height)
+        let size = NSSize(
+            width: min(max(preferredSize.width, minimumSize.width), maximumSize.width),
+            height: min(max(preferredSize.height, minimumSize.height), maximumSize.height)
+        )
         var frame = panel.frame
-        frame.origin.x = frame.midX - width / 2
-        frame.origin.y = frame.maxY - fittedHeight
-        frame.size = NSSize(width: width, height: fittedHeight)
+        frame.origin.x = frame.midX - size.width / 2
+        frame.origin.y = frame.maxY - size.height
+        frame.size = size
         if let visibleFrame {
-            frame.origin.x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - width)
-            frame.origin.y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - fittedHeight)
+            frame.origin.x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - size.width)
+            frame.origin.y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - size.height)
         }
+        guard frame != panel.frame else { return }
         panel.setFrame(frame, display: panel.isVisible, animate: animated)
         panel.invalidateShadow()
     }
 
-    private func positionPanel() {
-        let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main
+    private func panelSizeKey(for mode: PanelMode) -> String {
+        "panelSize.\(mode.rawValue)"
+    }
+
+    private func savedPanelSize(for mode: PanelMode) -> NSSize? {
+        guard let saved = UserDefaults.standard.dictionary(forKey: panelSizeKey(for: mode)),
+              let width = saved["width"] as? Double,
+              let height = saved["height"] as? Double,
+              width.isFinite, height.isFinite, width > 0, height > 0 else { return nil }
+        return NSSize(width: width, height: height)
+    }
+
+    private func positionPanel(on screen: NSScreen?) {
         guard let visibleFrame = screen?.visibleFrame else { return }
         let panelSize = panel.frame.size
         let origin = NSPoint(

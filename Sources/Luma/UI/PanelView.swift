@@ -440,6 +440,7 @@ private struct ClipboardHistoryView: View {
                             ForEach(state.filteredClipboardEntries) { entry in
                                 ClipboardRowView(
                                     entry: entry,
+                                    timeReference: state.clipboardTimeReference,
                                     isSelected: state.selectedClipboardEntry?.id == entry.id,
                                     onSelect: { state.selectedClipboardEntryID = entry.id },
                                     onPaste: {
@@ -481,6 +482,7 @@ private struct ClipboardHistoryView: View {
 
 private struct ClipboardRowView: View {
     let entry: ClipboardEntry
+    let timeReference: Date
     let isSelected: Bool
     let onSelect: () -> Void
     let onPaste: () -> Void
@@ -509,7 +511,9 @@ private struct ClipboardRowView: View {
                             .lineLimit(1)
                         Text("·")
                     }
-                    Text(entry.copiedAt, style: .relative)
+                    Text(recordedTimeDescription)
+                        .lineLimit(1)
+                        .help("最后更新：\(entry.copiedAt.formatted(date: .numeric, time: .standard))")
                     Text("·")
                     Text("\(entry.text.count) 字符")
                 }
@@ -551,6 +555,15 @@ private struct ClipboardRowView: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2, perform: onPaste)
         .onTapGesture(perform: onSelect)
+    }
+
+    private var recordedTimeDescription: String {
+        // Use the presentation's reference time so ordinary redraws never make the label tick.
+        let elapsed = max(0, timeReference.timeIntervalSince(entry.copiedAt))
+        if elapsed < 60 { return "刚刚记录" }
+        if elapsed < 3_600 { return "记录于 \(Int(elapsed / 60)) 分钟前" }
+        if elapsed < 86_400 { return "记录于 \(Int(elapsed / 3_600)) 小时前" }
+        return "记录于 \(Int(elapsed / 86_400)) 天前"
     }
 }
 
