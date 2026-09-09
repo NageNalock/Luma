@@ -18,6 +18,7 @@ final class ClipboardHistoryStore: ObservableObject {
     @Published private(set) var entries: [ClipboardEntry] = []
 
     private let fileURL: URL
+    private let pasteboard: NSPasteboard
     private let maximumEntryCount: Int
     private let maximumTextSize = 1_000_000
     private var lastChangeCount: Int
@@ -26,11 +27,13 @@ final class ClipboardHistoryStore: ObservableObject {
     init(
         fileURL: URL? = nil,
         maximumEntryCount: Int = 200,
-        startMonitoring: Bool = true
+        startMonitoring: Bool = true,
+        pasteboard: NSPasteboard = .general
     ) {
         self.fileURL = fileURL ?? Self.defaultFileURL()
+        self.pasteboard = pasteboard
         self.maximumEntryCount = max(1, maximumEntryCount)
-        lastChangeCount = NSPasteboard.general.changeCount
+        lastChangeCount = pasteboard.changeCount
         load()
         if startMonitoring {
             startMonitor()
@@ -68,13 +71,17 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     func restore(_ entry: ClipboardEntry) throws {
-        let pasteboard = NSPasteboard.general
+        try copyForPaste(entry.text)
+        promote(entry)
+    }
+
+    /// Stage record/JSON text without adding another copy to clipboard history.
+    func copyForPaste(_ text: String) throws {
         pasteboard.clearContents()
-        guard pasteboard.setString(entry.text, forType: .string) else {
+        guard pasteboard.setString(text, forType: .string) else {
             throw ClipboardHistoryError.cannotWritePasteboard
         }
         lastChangeCount = pasteboard.changeCount
-        promote(entry)
     }
 
     func delete(_ entry: ClipboardEntry) {
@@ -92,7 +99,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     func requestReadAccess() {
-        _ = NSPasteboard.general.string(forType: .string)
+        _ = pasteboard.string(forType: .string)
     }
 
     private func startMonitor() {
@@ -106,7 +113,6 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func capturePasteboardChange(sourceApplication: NSRunningApplication?) {
-        let pasteboard = NSPasteboard.general
         let changeCount = pasteboard.changeCount
         guard changeCount != lastChangeCount else { return }
         lastChangeCount = changeCount

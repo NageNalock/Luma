@@ -12,7 +12,6 @@ final class PanelController: NSObject, NSWindowDelegate {
     let state: AppState
 
     private let panel: LumaPanel
-    private let sendTextEngine = SendTextEngine()
     private let clipboardPasteEngine = ClipboardPasteEngine()
     private var localKeyMonitor: Any?
     private var subscriptions = Set<AnyCancellable>()
@@ -241,38 +240,16 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func send(_ text: String, record: TextRecord) {
-        guard let context = state.sourceContext else {
-            state.statusMessage = "没有可用的发送目标。"
+        do {
+            try state.clipboardStore.copyForPaste(text)
+        } catch {
+            state.statusMessage = error.localizedDescription
             return
         }
-
-        guard SendTextEngine.isAccessibilityTrusted(prompt: false) else {
-            state.statusMessage = "请在系统设置的“隐私与安全性 → 辅助功能”中允许 Luma，然后重试。"
-            return
+        if state.recordStore.records.contains(where: { $0.id == record.id }) {
+            try? state.recordStore.markUsed(record)
         }
-
-        if let frontmost = NSWorkspace.shared.frontmostApplication,
-           frontmost.processIdentifier != context.processIdentifier,
-           frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
-            state.statusMessage = SendTextError.targetChanged.localizedDescription
-            return
-        }
-
-        hide()
-        context.application.activate()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            guard let self else { return }
-            switch self.sendTextEngine.send(text, to: context) {
-            case .success:
-                if self.state.recordStore.records.contains(where: { $0.id == record.id }) {
-                    try? self.state.recordStore.markUsed(record)
-                }
-            case .failure(let error):
-                self.state.statusMessage = error.localizedDescription
-                self.presentPanel()
-            }
-        }
+        pastePreparedText()
     }
 
     private func pasteClipboardEntry(_ entry: ClipboardEntry) {
@@ -283,13 +260,16 @@ final class PanelController: NSObject, NSWindowDelegate {
             state.statusMessage = error.localizedDescription
             return
         }
+        pastePreparedText()
+    }
 
+    private func pastePreparedText() {
         guard let context = state.sourceContext else {
-            state.statusMessage = "已放回剪贴板，可在目标位置按 ⌘V。"
+            state.statusMessage = "已复制，可在目标位置按 ⌘V。"
             return
         }
 
-        guard SendTextEngine.isAccessibilityTrusted(prompt: false) else {
+        guard ClipboardPasteEngine.isAccessibilityTrusted(prompt: false) else {
             state.statusMessage = ClipboardPasteError.accessibilityPermissionRequired.localizedDescription
             return
         }
@@ -297,16 +277,17 @@ final class PanelController: NSObject, NSWindowDelegate {
         if let frontmost = NSWorkspace.shared.frontmostApplication,
            frontmost.processIdentifier != context.processIdentifier,
            frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
-            state.statusMessage = "发送目标已经变化；内容已放回剪贴板，可手动按 ⌘V。"
+            state.statusMessage = ClipboardPasteError.targetChanged.localizedDescription
             return
         }
 
+        let changeCount = NSPasteboard.general.changeCount
         hide()
         context.application.activate()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
             guard let self else { return }
-            switch self.clipboardPasteEngine.paste(to: context) {
+            switch self.clipboardPasteEngine.paste(to: context, expectedChangeCount: changeCount) {
             case .success:
                 break
             case .failure(let error):

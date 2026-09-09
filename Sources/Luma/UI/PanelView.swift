@@ -724,13 +724,17 @@ private struct TargetRailView: View {
     private var targetDescription: String {
         switch state.mode {
         case .records:
-            return "↵ 发送到 \(state.targetName)"
+            return state.sourceContext == nil
+                ? "↵ 复制记录"
+                : "↵ 粘贴到 \(state.targetName)"
         case .clipboard:
             return state.sourceContext == nil
                 ? "↵ 放回剪贴板"
                 : "↵ 粘贴到 \(state.targetName)"
         case .json:
-            return "发送 JSON 到 \(state.targetName)"
+            return state.sourceContext == nil
+                ? "复制 JSON 结果"
+                : "粘贴 JSON 到 \(state.targetName)"
         case .diff:
             return "本机对比 · 内容仅保留在本次运行中"
         }

@@ -159,14 +159,15 @@ final class AppState: ObservableObject {
 
     func sendSelected() {
         guard let record = selectedRecord else { return }
-        guard let context = sourceContext else {
-            statusMessage = "没有可用的发送目标。"
-            return
-        }
-        if !record.allowedBundleIdentifiers.isEmpty,
-           !record.allowedBundleIdentifiers.contains(context.bundleIdentifier) {
-            statusMessage = "这条记录不允许发送到 \(context.displayName)。"
-            return
+        if !record.allowedBundleIdentifiers.isEmpty {
+            guard let context = sourceContext else {
+                statusMessage = "这条记录限制了目标应用，请从允许的应用中按 ⌥ Space 呼出 Luma。"
+                return
+            }
+            guard record.allowedBundleIdentifiers.contains(context.bundleIdentifier) else {
+                statusMessage = "这条记录不允许发送到 \(context.displayName)。"
+                return
+            }
         }
 
         do {

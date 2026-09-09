@@ -78,7 +78,7 @@ struct RecordEditorView: View {
                     VStack(spacing: 0) {
                         optionRow(
                             title: "解析控制字符",
-                            detail: "将 \\n、\\t、\\e 等转换为真实按键",
+                            detail: "将 \\n、\\t 等转换为换行、制表符等文本字符",
                             isOn: $draft.interpretEscapes
                         )
                         Divider().padding(.leading, 14)

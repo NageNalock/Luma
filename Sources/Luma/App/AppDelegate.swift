@@ -184,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             clipboardStore.requestReadAccess()
-            _ = SendTextEngine.isAccessibilityTrusted(prompt: true)
+            _ = ClipboardPasteEngine.isAccessibilityTrusted(prompt: true)
         }
     }
 

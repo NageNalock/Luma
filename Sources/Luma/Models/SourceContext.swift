@@ -1,9 +1,7 @@
 import AppKit
-import ApplicationServices
 
 struct SourceContext {
     let application: NSRunningApplication
-    let focusedElement: AXUIElement?
     let capturedAt: Date
 
     var processIdentifier: pid_t { application.processIdentifier }

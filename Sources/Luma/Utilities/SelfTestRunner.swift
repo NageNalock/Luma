@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum SelfTestRunner {
@@ -135,6 +136,57 @@ enum SelfTestRunner {
             "clipboard preview flattens controls",
             ClipboardEntry(text: "line 1\nline 2\tvalue").preview == "line 1 ↵ line 2 ⇥ value"
         )
+
+        // Use an isolated pasteboard so tests never replace the user's clipboard.
+        let testPasteboard = NSPasteboard.withUniqueName()
+        defer { testPasteboard.releaseGlobally() }
+        let pasteStore = ClipboardHistoryStore(
+            fileURL: clipboardPersistenceURL,
+            startMonitoring: false,
+            pasteboard: testPasteboard
+        )
+        do {
+            let text = "Luma 中文 👩🏽‍💻\nsecond line\tend"
+            let originalEntries = pasteStore.entries
+            try pasteStore.copyForPaste(text)
+            check("record paste preserves Unicode and whitespace", testPasteboard.string(forType: .string) == text)
+            pasteStore.captureLatest()
+            check("record paste does not create a clipboard history entry", pasteStore.entries == originalEntries)
+            let savedHistory = try String(contentsOf: clipboardPersistenceURL, encoding: .utf8)
+            check("record paste does not persist an extra plaintext copy", !savedHistory.contains("second line"))
+
+            testPasteboard.clearContents()
+            testPasteboard.setString("a later external copy", forType: .string)
+            pasteStore.captureLatest()
+            check("record paste does not suppress the next external copy", pasteStore.entries.first?.text == "a later external copy")
+            if let previous = originalEntries.last {
+                try pasteStore.restore(previous)
+                check("clipboard restore still writes and promotes the entry", testPasteboard.string(forType: .string) == previous.text && pasteStore.entries.first?.id == previous.id)
+            }
+
+            let flowStore = RecordStore(fileURL: persistenceURL, secureStore: secureStore)
+            var draft = RecordDraft()
+            draft.name = "粘贴自测"
+            draft.text = text
+            try flowStore.save(draft)
+            let flowState = AppState(recordStore: flowStore, clipboardStore: pasteStore)
+            flowState.selectedRecordID = draft.id
+            var forwardedText: String?
+            flowState.onSendText = { text, _ in forwardedText = text }
+            flowState.sendSelected()
+            check("unrestricted record can be copied without a captured target", forwardedText == text)
+
+            forwardedText = nil
+            draft.allowedAppsText = "com.example.allowed-target"
+            try flowStore.save(draft)
+            flowState.sendSelected()
+            check("restricted record requires a captured target before copying", forwardedText == nil && flowState.statusMessage?.contains("限制了目标应用") == true)
+            flowState.sourceContext = SourceContext(application: .current, capturedAt: Date())
+            flowState.sendSelected()
+            check("restricted record rejects other applications before copying", forwardedText == nil && flowState.statusMessage?.contains("不允许发送") == true)
+        } catch {
+            failures.append(Failure(name: "record paste workflow", detail: error.localizedDescription))
+        }
 
         if failures.isEmpty {
             print("Luma self-test: \(checksRun) checks passed")
