@@ -37,8 +37,11 @@ final class RecordStore: ObservableObject {
         guard !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw RecordStoreError.missingName
         }
-        guard !draft.text.isEmpty else {
+        guard !draft.text.isEmpty || draft.kind.isLauncher else {
             throw RecordStoreError.missingText
+        }
+        if draft.kind.isLauncher {
+            _ = try CommandLaunchPlan(kind: draft.kind, content: draft.text)
         }
 
         let oldRecord = records.first(where: { $0.id == draft.id })

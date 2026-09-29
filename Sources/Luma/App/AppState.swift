@@ -28,6 +28,7 @@ final class AppState: ObservableObject {
     @Published var availableUpdate: AppRelease?
     @Published var isCheckingForUpdates = false
     @Published var isDownloadingUpdate = false
+    @Published var isLaunchingCommand = false
 
     @Published var jsonInput = "" {
         didSet { scheduleJSONProcessing() }
@@ -40,6 +41,7 @@ final class AppState: ObservableObject {
     let clipboardStore: ClipboardHistoryStore
     let textDiff = TextDiffState()
     var onSendText: ((String, TextRecord) -> Void)?
+    var onLaunchCommand: ((String, TextRecord) -> Void)?
     var onPasteClipboard: ((ClipboardEntry) -> Void)?
     var onRequestHide: (() -> Void)?
 
@@ -159,6 +161,15 @@ final class AppState: ObservableObject {
 
     func sendSelected() {
         guard let record = selectedRecord else { return }
+        if record.kind.isLauncher {
+            guard !isLaunchingCommand else { return }
+            do {
+                onLaunchCommand?(try recordStore.resolvedText(for: record), record)
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+            return
+        }
         if !record.allowedBundleIdentifiers.isEmpty {
             guard let context = sourceContext else {
                 statusMessage = "这条记录限制了目标应用，请从允许的应用中按 ⌥ Space 呼出 Luma。"

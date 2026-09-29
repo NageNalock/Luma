@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct RecordEditorView: View {
@@ -25,10 +26,10 @@ struct RecordEditorView: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(draft.originalRecord == nil ? "新建文本记录" : "编辑文本记录")
+                    Text((draft.originalRecord == nil ? "新建" : "编辑") + (draft.kind.isLauncher ? "快捷启动" : "文本记录"))
                         .font(.system(size: 20, weight: .semibold, design: .rounded))
                         .foregroundStyle(LumaTheme.graphite)
-                    Text("选择后，正文会原样发送到此前聚焦的位置。")
+                    Text(draft.kind.isLauncher ? "选择后按回车，在终端中运行并查看输出。" : "选择后，正文会原样发送到此前聚焦的位置。")
                         .font(.system(size: 11))
                         .foregroundStyle(LumaTheme.muted)
                 }
@@ -40,21 +41,51 @@ struct RecordEditorView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    Picker("记录类型", selection: $draft.kind) {
+                        ForEach(RecordKind.allCases, id: \.self) { kind in
+                            Text(kind.title).tag(kind)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: draft.kind) { _, _ in localError = nil }
+
                     fieldLabel("名称")
-                    TextField("例如：常用回复", text: $draft.name)
+                    TextField(draft.kind.isLauncher ? "例如：启动 Qwen" : "例如：常用回复", text: $draft.name)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14, weight: .medium))
                         .padding(.horizontal, 12)
                         .frame(height: 38)
                         .lumaCard()
 
-                    fieldLabel("要发送的文本")
-                    TextEditor(text: $draft.text)
-                        .font(.system(size: 13, design: .monospaced))
-                        .scrollContentBackground(.hidden)
-                        .padding(8)
-                        .frame(minHeight: 150)
-                        .lumaCard()
+                    if draft.kind == .script {
+                        fieldLabel("脚本路径")
+                        HStack(spacing: 8) {
+                            TextField("/path/to/启动.command", text: $draft.text)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12, design: .monospaced))
+                                .padding(.horizontal, 12)
+                                .frame(height: 38)
+                                .lumaCard()
+                            Button("选择文件…", action: chooseScript)
+                        }
+                        Text("支持 .command、.sh 等可执行脚本，运行目录为脚本所在文件夹。路径无需加引号。")
+                            .font(.system(size: 11))
+                            .foregroundStyle(LumaTheme.muted)
+                    } else {
+                        fieldLabel(draft.kind == .command ? "要运行的命令" : "要发送的文本")
+                        TextEditor(text: $draft.text)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(LumaTheme.graphite)
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                            .frame(minHeight: 150)
+                            .lumaCard()
+                        if draft.kind == .command {
+                            Text("使用 zsh 登录环境，从个人文件夹开始运行。支持多行命令，也可先用 cd 切换目录。")
+                                .font(.system(size: 11))
+                                .foregroundStyle(LumaTheme.muted)
+                        }
+                    }
 
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 7) {
@@ -76,12 +107,14 @@ struct RecordEditorView: View {
                     }
 
                     VStack(spacing: 0) {
-                        optionRow(
-                            title: "解析控制字符",
-                            detail: "将 \\n、\\t 等转换为换行、制表符等文本字符",
-                            isOn: $draft.interpretEscapes
-                        )
-                        Divider().padding(.leading, 14)
+                        if draft.kind == .text {
+                            optionRow(
+                                title: "解析控制字符",
+                                detail: "将 \\n、\\t 等转换为换行、制表符等文本字符",
+                                isOn: $draft.interpretEscapes
+                            )
+                            Divider().padding(.leading, 14)
+                        }
                         optionRow(
                             title: "隐藏预览",
                             detail: "在搜索结果中用圆点代替正文",
@@ -96,21 +129,23 @@ struct RecordEditorView: View {
                     }
                     .lumaCard()
 
-                    DisclosureGroup("限制目标应用") {
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text("填写允许接收此记录的 bundle identifier，用逗号分隔；留空表示不限。")
-                                .font(.system(size: 11))
-                                .foregroundStyle(LumaTheme.muted)
-                            TextField("com.example.target", text: $draft.allowedAppsText)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 12, design: .monospaced))
-                                .padding(.horizontal, 12)
-                                .frame(height: 36)
-                                .lumaCard()
+                    if draft.kind == .text {
+                        DisclosureGroup("限制目标应用") {
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text("填写允许接收此记录的 bundle identifier，用逗号分隔；留空表示不限。")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(LumaTheme.muted)
+                                TextField("com.example.target", text: $draft.allowedAppsText)
+                                    .textFieldStyle(.plain)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 36)
+                                    .lumaCard()
+                            }
+                            .padding(.top, 8)
                         }
-                        .padding(.top, 8)
+                        .font(.system(size: 12, weight: .semibold))
                     }
-                    .font(.system(size: 12, weight: .semibold))
 
                     if let localError {
                         Label(localError, systemImage: "exclamationmark.circle.fill")
@@ -143,8 +178,10 @@ struct RecordEditorView: View {
             }
             .padding(16)
         }
-        .frame(width: 560, height: 590)
+        .frame(width: 560, height: 640)
+        .foregroundStyle(LumaTheme.graphite)
         .background(LumaTheme.mercury)
+        .preferredColorScheme(.light)
     }
 
     private func save() {
@@ -152,15 +189,39 @@ struct RecordEditorView: View {
             localError = "请输入记录名称。"
             return
         }
-        guard !draft.text.isEmpty else {
-            localError = "请输入要发送的文本。"
-            return
+        if draft.kind.isLauncher {
+            do {
+                _ = try CommandLaunchPlan(kind: draft.kind, content: draft.text)
+            } catch {
+                localError = error.localizedDescription
+                return
+            }
+        } else {
+            guard !draft.text.isEmpty else {
+                localError = "请输入要发送的文本。"
+                return
+            }
         }
         if onSave(draft) {
             dismiss()
         } else {
             localError = "保存失败，请查看主窗口提示。"
         }
+    }
+
+    private func chooseScript() {
+        let panel = NSOpenPanel()
+        panel.title = "选择要启动的脚本"
+        panel.prompt = "选择脚本"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        draft.text = url.path
+        if draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draft.name = url.deletingPathExtension().lastPathComponent
+        }
+        localError = nil
     }
 
     private func fieldLabel(_ title: String) -> some View {
