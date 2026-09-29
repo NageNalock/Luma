@@ -32,6 +32,7 @@ struct PanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .preferredColorScheme(.light)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -272,10 +273,10 @@ private struct RecordListView: View {
                             .foregroundStyle(LumaTheme.iris)
                     }
                     .frame(width: 54, height: 54)
-                    Text(state.query.isEmpty ? "还没有文本记录" : "没有匹配的记录")
+                    Text(state.query.isEmpty ? "还没有记录" : "没有匹配的记录")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundStyle(LumaTheme.graphite)
-                    Text(state.query.isEmpty ? "新建一条，之后可从任何应用呼出并发送。" : "试试名称、别名或标签。")
+                    Text(state.query.isEmpty ? "新建快捷文本或快捷启动，之后可从任何应用呼出使用。" : "试试名称、别名或标签。")
                         .font(.system(size: 12))
                         .foregroundStyle(LumaTheme.muted)
                     if state.query.isEmpty {
@@ -302,6 +303,10 @@ private struct RecordListView: View {
                                 )
                                 .id(record.id)
                                 .contextMenu {
+                                    Button(record.kind.isLauncher ? "启动" : "使用文本") {
+                                        state.selectedRecordID = record.id
+                                        state.sendSelected()
+                                    }
                                     Button(record.isFavorite ? "取消收藏" : "收藏") {
                                         state.toggleFavorite(record)
                                     }
@@ -344,7 +349,7 @@ private struct RecordRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: record.isFavorite ? "star.fill" : "text.quote")
+            Image(systemName: record.kind.isLauncher ? "terminal" : (record.isFavorite ? "star.fill" : "text.quote"))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(record.isFavorite ? LumaTheme.iris : LumaTheme.muted.opacity(0.72))
                 .frame(width: 24)
@@ -361,6 +366,16 @@ private struct RecordRowView: View {
             }
 
             Spacer(minLength: 12)
+
+            if record.kind.isLauncher {
+                Text("启动")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(LumaTheme.iris)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(LumaTheme.lilacWash)
+                    .clipShape(Capsule())
+            }
 
             if record.isProtected {
                 Image(systemName: "key.fill")
@@ -667,7 +682,10 @@ private struct TargetRailView: View {
                         .foregroundStyle(LumaTheme.graphite)
                         .lineLimit(1)
                 } else {
-                    if state.mode == .diff {
+                    if state.mode == .records && state.selectedRecord?.kind.isLauncher == true {
+                        Image(systemName: "terminal")
+                            .foregroundStyle(LumaTheme.iris)
+                    } else if state.mode == .diff {
                         Image(systemName: "lock.shield")
                             .foregroundStyle(LumaTheme.iris)
                     } else {
@@ -724,6 +742,9 @@ private struct TargetRailView: View {
     private var targetDescription: String {
         switch state.mode {
         case .records:
+            if state.selectedRecord?.kind.isLauncher == true {
+                return "↵ 在终端中启动"
+            }
             return state.sourceContext == nil
                 ? "↵ 复制记录"
                 : "↵ 粘贴到 \(state.targetName)"

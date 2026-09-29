@@ -64,6 +64,7 @@ enum SelfTestRunner {
 
         TextDiffSelfTests.run { name, condition in check(name, condition) }
         GitHubReleaseWebSelfTests.run { name, condition in check(name, condition) }
+        CommandLaunchSelfTests.run { name, condition in check(name, condition) }
 
         let currentVersion = AppVersion(versionString: "0.2.0", buildString: "7")
         let newerBuild = AppVersion(releaseTag: "v0.2.0-build.8.1-abcdef0")

@@ -30,6 +30,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        // The palette is intentionally light; native editors must use the same appearance.
+        panel.appearance = NSAppearance(named: .aqua)
         panel.hasShadow = true
         panel.level = .floating
         panel.isFloatingPanel = true
@@ -51,6 +53,9 @@ final class PanelController: NSObject, NSWindowDelegate {
 
         state.onSendText = { [weak self] text, record in
             self?.send(text, record: record)
+        }
+        state.onLaunchCommand = { [weak self] command, record in
+            self?.launch(command, record: record)
         }
         state.onPasteClipboard = { [weak self] entry in
             self?.pasteClipboardEntry(entry)
@@ -237,6 +242,25 @@ final class PanelController: NSObject, NSWindowDelegate {
             y: max(visibleFrame.minY, visibleFrame.maxY - panelSize.height - min(92, visibleFrame.height * 0.12))
         )
         panel.setFrameOrigin(origin)
+    }
+
+    private func launch(_ command: String, record: TextRecord) {
+        guard !state.isLaunchingCommand else { return }
+        state.isLaunchingCommand = true
+        state.statusMessage = "正在启动 \(record.name)…"
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.state.isLaunchingCommand = false }
+            do {
+                try await CommandLauncher.launch(kind: record.kind, content: command)
+                try? self.state.recordStore.markUsed(record)
+                self.state.statusMessage = nil
+                self.hide()
+            } catch {
+                self.state.statusMessage = error.localizedDescription
+                self.presentPanel()
+            }
+        }
     }
 
     private func send(_ text: String, record: TextRecord) {
